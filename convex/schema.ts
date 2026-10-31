@@ -162,6 +162,17 @@ export default defineSchema({
     task: v.string(),
     integrations: v.array(v.string()),
     schedule: v.string(),
+    scheduleKind: v.optional(v.union(v.literal("cron"), v.literal("once"), v.literal("interval"), v.literal("calendar"))),
+    delivery: v.optional(v.union(v.literal("agent"), v.literal("reminder"))),
+    reminderText: v.optional(v.string()),
+    intervalMs: v.optional(v.number()),
+    intervalDays: v.optional(v.number()),
+    anchorAt: v.optional(v.number()),
+    leaseRunId: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    failureCount: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
     // IANA timezone the cron expression is evaluated in. Stored at create
     // time so changing the user's global timezone later doesn't shift
     // existing automations. Optional for backwards compatibility — pre-TZ
@@ -175,7 +186,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_automation_id", ["automationId"])
-    .index("by_enabled", ["enabled"]),
+    .index("by_enabled", ["enabled"])
+    .index("by_enabled_and_next_run_at", ["enabled", "nextRunAt"]),
 
   sendblueDedup: defineTable({
     handle: v.string(),

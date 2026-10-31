@@ -25,7 +25,7 @@ const paragraph = "My name is Mira. I live in Lisbon. I'm building a time tracke
 const caseIndex = process.argv.indexOf("--case");
 const selectedCase = caseIndex >= 0 ? process.argv[caseIndex + 1] : undefined;
 const results: Array<{ name: string; input: number; output: number }> = [];
-for (const name of (baselineRoot ? ["personal-paragraph", "recall"] : ["personal-paragraph", "recall", "recurring-reminder", "approve-draft", "unknown-timezone", "extract-paragraph"]).filter(name => !selectedCase || name === selectedCase)) {
+for (const name of (baselineRoot ? ["personal-paragraph", "recall"] : ["personal-paragraph", "recall", "recurring-reminder", "approve-draft", "unknown-timezone", "one-time-reminder", "selected-days", "every-other-day", "extract-paragraph"]).filter(name => !selectedCase || name === selectedCase)) {
   const calls: Array<{name:string; args: Record<string, unknown>}> = [];
   const prompts: Record<string,string> = {
     "personal-paragraph": paragraph,
@@ -33,6 +33,9 @@ for (const name of (baselineRoot ? ["personal-paragraph", "recall"] : ["personal
     "recurring-reminder": "Remind me every day at 9am to stretch.",
     "approve-draft": "Prior turns:\nASSISTANT: I drafted an email to Pat about lunch. Say send it to approve.\nCurrent message:\nSend it.",
     "unknown-timezone": "Remind me every day at 9am to stretch.",
+    "one-time-reminder": "Remind me in 30 minutes to stretch.",
+    "selected-days": "Remind me every Monday, Wednesday, and Friday at 9am to stretch.",
+    "every-other-day": "Remind me every other day at 9am starting November 2, 2026 to stretch.",
     "extract-paragraph": `USER: ${paragraph}\nASSISTANT: Saved your details.`,
   };
   const result = await runCodexAppServerAgent({
@@ -59,14 +62,20 @@ for (const name of (baselineRoot ? ["personal-paragraph", "recall"] : ["personal
   } else if (name === "recall") {
     assert(called("recall").length > 0); assert(/lisbon/i.test(result.text)); assert(/google/i.test(result.text));
   } else if (name === "recurring-reminder") {
-    assert(called("create_automation").some(c => c.args.schedule === "0 9 * * *"));
+    assert(called("create_reminder").some(c => c.args.schedule === "0 9 * * *"));
   } else if (name === "approve-draft") {
     const listed = calls.findIndex(c => c.name === "list_drafts");
     assert(listed >= 0 && calls.findIndex(c => c.name === "send_draft") > listed);
     assert(called("send_draft").some(c => c.args.draftId === "draft_eval"), JSON.stringify(calls));
   } else if (name === "unknown-timezone") {
-    assert(called("create_automation").length === 0);
+    assert(called("create_automation").length === 0 && called("create_reminder").length === 0);
     assert(/time.?zone/i.test(result.text));
+  } else if(name === "one-time-reminder") {
+    assert(called("create_reminder").some(c=>c.args.afterSeconds===1800));
+  } else if(name === "selected-days") {
+    assert(called("create_reminder").some(c=>typeof c.args.schedule==="string" && /(?:1,3,5|MON,WED,FRI)/i.test(c.args.schedule)));
+  } else if(name === "every-other-day") {
+    assert(called("create_reminder").some(c=>c.args.everyDays===2 && typeof c.args.at==="string"));
   } else {
     const parsed = JSON.parse(result.text.match(/\{[\s\S]*\}/)![0]);
     const facts = JSON.stringify(parsed.facts).toLowerCase();

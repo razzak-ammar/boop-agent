@@ -109,3 +109,12 @@ remains saved if extraction is incomplete or fails. Use ordinary chat for
 questions, reminders, actions, or messages with images; those keep the full
 conversational flow. `/remember` treats its text as a note, not an instruction
 to execute actions embedded in it.
+
+### Reminders
+
+One-time and flexible recurring reminders are supported. Try “remind me in 30
+minutes,” “tomorrow at 9am,” “every Monday and Friday,” “every other day at 9am
+starting November 2,” or “every three hours.” Plain reminders send their saved
+text without a model call at delivery. Ask to list, pause, delete, or reschedule
+them. Local clock times need your saved timezone. See [reminder details](docs/REMINDERS.md)
+for restart, DST, retry, and timing behavior.

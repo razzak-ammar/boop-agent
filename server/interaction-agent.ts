@@ -359,6 +359,8 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
               "mcp__boop-memory__recall",
               "mcp__boop-spawn__spawn_agent",
               "mcp__boop-automations__create_automation",
+              "mcp__boop-automations__create_reminder",
+              "mcp__boop-automations__reschedule_automation",
               "mcp__boop-automations__list_automations",
               "mcp__boop-automations__toggle_automation",
               "mcp__boop-automations__delete_automation",

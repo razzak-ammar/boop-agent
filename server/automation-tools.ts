@@ -2,143 +2,235 @@ import { z } from "zod";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { availableIntegrations } from "./execution-agent.js";
-import { nextRunFor, validateSchedule } from "./automations.js";
+import { buildSchedule } from "./reminder-schedule.js";
 import { describeUserNow } from "./timezone-config.js";
 import { createClaudeMcpServer } from "./runtimes/claude.js";
 import { defineRuntimeTool } from "./runtimes/tool.js";
 import { runtimeText, type RuntimeTool } from "./runtimes/types.js";
-
 const NAMESPACE = "boop-automations";
-
-function randomId(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+const scheduleShape = {
+  schedule: z
+    .string()
+    .optional()
+    .describe(
+      '5-field cron in the saved LOCAL timezone: weekdays 9am="0 9 * * 1-5", Mon/Wed/Fri="0 9 * * 1,3,5", monthly 1st="0 9 1 * *". Never use day-of-month */N for every N days.',
+    ),
+  at: z
+    .string()
+    .optional()
+    .describe(
+      "Exact YYYY-MM-DDTHH:mm[:ss] in the saved timezone, or ISO timestamp with explicit UTC offset. Alone means once; with an interval sets its first occurrence. Ask about ambiguous dates/times.",
+    ),
+  afterSeconds: z
+    .number()
+    .min(1)
+    .max(315360000)
+    .optional()
+    .describe(
+      "One-time delay from now, e.g. 1800 for in 30 minutes. No timezone needed.",
+    ),
+  everySeconds: z
+    .number()
+    .min(60)
+    .max(315360000)
+    .optional()
+    .describe(
+      "Fixed elapsed interval: every 3 hours=10800; every 48 hours=172800. May include at for its first run.",
+    ),
+  everyDays: z
+    .number()
+    .int()
+    .min(1)
+    .max(3650)
+    .optional()
+    .describe(
+      "Calendar-day interval in the saved timezone, preserving local clock across DST: every other day=2, every two weeks=14. Use at for the first desired occurrence.",
+    ),
+};
+const scheduleHelp =
+  "Choose exactly one: at (once), afterSeconds (once), schedule (cron), everySeconds (elapsed interval), or everyDays (calendar interval). Intervals may additionally specify at. Ask for a timezone before local wall-clock schedules if unset; relative delays need none. Never invent a time when the user has not specified one.";
+function id() {
+  return `auto_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
-
+async function scheduled(input: Parameters<typeof buildSchedule>[0]) {
+  const tz = await describeUserNow();
+  return buildSchedule(input, tz.isExplicit ? tz.timezone : null);
+}
+function confirmation(
+  automationId: string,
+  name: string,
+  fields: ReturnType<typeof buildSchedule>,
+) {
+  const when = new Intl.DateTimeFormat("en-US", {
+    timeZone: fields.timezone ?? "UTC",
+    dateStyle: "full",
+    timeStyle: "long",
+  }).format(fields.nextRunAt!);
+  return `Saved ${automationId} "${name}". ${fields.scheduleKind === "once" ? "One time only" : "Recurring"}; next: ${when}. Schedule: ${fields.schedule}.`;
+}
 export function createAutomationTools(conversationId: string): RuntimeTool[] {
-  const integrationHint = availableIntegrations().join(", ") || "(none configured)";
-
   return [
     defineRuntimeTool(
       NAMESPACE,
-      "create_automation",
-      `Schedule a recurring task. The agent will run the task on the schedule and reply with the result.
-
-Cron expressions (5 fields: min hour day-of-month month day-of-week). Write times in the user's LOCAL clock — the runner attaches the user's stored timezone (from settings.user_timezone) automatically when evaluating the cron, so do NOT convert to UTC. If the user says "every morning at 10am" and they're on Central, pass "0 10 * * *" — it'll fire at 10am Central.
-
-Examples:
-  "0 8 * * *"      — every day at 8am (user-local)
-  "*/15 * * * *"   — every 15 minutes
-  "0 9 * * 1-5"    — weekdays at 9am (user-local)
-  "0 18 * * 0"     — Sundays at 6pm (user-local)
-
-If you don't yet know the user's timezone (get_config returns userTimezone=null), ASK before creating any time-of-day automation — otherwise it'll fire in the server's zone, which is almost always wrong.
-
-Use this for anything the user says "every [time]" or "remind me" about.
-Integrations available: ${integrationHint}`,
+      "create_reminder",
+      `Save a plain reminder to this conversation. It sends the supplied message directly when due, without a model call. ${scheduleHelp}`,
       {
-        name: z.string().describe("Short label, e.g. 'morning email digest'."),
-        schedule: z.string().describe("Cron expression (5 fields)."),
-        task: z
+        message: z
           .string()
-          .describe("Specific task for the sub-agent — what to look up, draft, or summarize."),
-        integrations: z
-          .array(z.string())
-          .optional()
-          .default([])
+          .trim()
+          .min(1)
+          .max(10000)
           .describe(
-            "Integration names the sub-agent needs for this task. Pass [] for reminder-only automations that don't need external tools.",
+            'The exact useful reminder text, e.g. "Take the laundry out". Not a request to look something up.',
           ),
-        notify: z
-          .boolean()
-          .optional()
-          .default(true)
-          .describe("If true, send the result to this conversation when it runs."),
+        name: z.string().optional(),
+        ...scheduleShape,
       },
       async (args) => {
-        const tzInfo = await describeUserNow();
-        const timezone = tzInfo.timezone;
-        const validation = validateSchedule(args.schedule, timezone);
-        if (!validation.valid) {
-          return runtimeText(`Invalid cron expression: ${validation.error}`, false);
+        try {
+          const fields = await scheduled(args);
+          const automationId = id();
+          const name = args.name?.trim() || args.message.slice(0, 64);
+          await convex.mutation(api.automations.create, {
+            automationId,
+            name,
+            task: args.message,
+            integrations: [],
+            ...fields,
+            delivery: "reminder",
+            reminderText: args.message,
+            conversationId,
+            notifyConversationId: conversationId,
+          });
+          return runtimeText(confirmation(automationId, name, fields));
+        } catch (err) {
+          return runtimeText(String(err), false);
         }
-        const automationId = randomId("auto");
-        const nextRunAt = nextRunFor(args.schedule, timezone) ?? undefined;
-        await convex.mutation(api.automations.create, {
-          automationId,
-          name: args.name,
-          task: args.task,
-          integrations: args.integrations,
-          schedule: args.schedule,
-          timezone,
-          conversationId,
-          notifyConversationId: args.notify ? conversationId : undefined,
-          nextRunAt,
-        });
-        const nextStr = nextRunAt
-          ? new Intl.DateTimeFormat("en-US", {
-              timeZone: timezone,
-              weekday: "short",
-              month: "short",
-              day: "numeric",
-              hour: "numeric",
-              minute: "2-digit",
-              timeZoneName: "short",
-            }).format(new Date(nextRunAt))
-          : "unknown";
-        const tzNote = tzInfo.isExplicit
-          ? `timezone: ${timezone}`
-          : `timezone: ${timezone} (server fallback — user has not set theirs; ask them and call set_timezone)`;
-        return runtimeText(
-          `Created automation ${automationId} "${args.name}" — next run: ${nextStr} (${tzNote}).`,
-        );
       },
     ),
-
+    defineRuntimeTool(
+      NAMESPACE,
+      "create_automation",
+      `Schedule work requiring an agent (calendar summaries, research, integrations). For plain reminders prefer create_reminder. ${scheduleHelp} Available integrations: ${availableIntegrations().join(", ") || "none"}.`,
+      {
+        name: z.string(),
+        task: z.string(),
+        ...scheduleShape,
+        integrations: z.array(z.string()).optional().default([]),
+        notify: z.boolean().optional().default(true),
+      },
+      async (args) => {
+        try {
+          const fields = await scheduled(args);
+          const automationId = id();
+          await convex.mutation(api.automations.create, {
+            automationId,
+            name: args.name,
+            task: args.task,
+            integrations: args.integrations,
+            ...fields,
+            delivery: "agent",
+            conversationId,
+            notifyConversationId: args.notify ? conversationId : undefined,
+          });
+          return runtimeText(confirmation(automationId, args.name, fields));
+        } catch (err) {
+          return runtimeText(String(err), false);
+        }
+      },
+    ),
     defineRuntimeTool(
       NAMESPACE,
       "list_automations",
-      "List all automations for this conversation.",
+      "List reminders and scheduled tasks for this conversation, including completed one-time reminders.",
       { enabledOnly: z.boolean().optional().default(false) },
       async (args) => {
         const all = await convex.query(api.automations.list, {
           enabledOnly: args.enabledOnly,
         });
-        const mine = all.filter((a) => a.conversationId === conversationId);
-        if (mine.length === 0) {
-          return runtimeText("No automations.");
-        }
-        const lines = mine.map(
-          (a) =>
-            `• [${a.automationId}] ${a.enabled ? "●" : "○"} "${a.name}" — ${a.schedule} — ${a.task}`,
+        return runtimeText(
+          JSON.stringify({
+            automations: all
+              .filter((a) => a.conversationId === conversationId)
+              .map((a) => ({
+                automationId: a.automationId,
+                name: a.name,
+                task: a.task,
+                enabled: a.enabled,
+                scheduleKind: a.scheduleKind ?? "cron",
+                schedule: a.schedule,
+                timezone: a.timezone,
+                nextRunAt: a.nextRunAt,
+                completedAt: a.completedAt,
+                lastError: a.lastError,
+              })),
+          }),
         );
-        return runtimeText(lines.join("\n"));
       },
     ),
-
+    defineRuntimeTool(
+      NAMESPACE,
+      "reschedule_automation",
+      `Change when an existing reminder/task runs (also works for a completed one-time reminder). Pass its exact automationId from list_automations. ${scheduleHelp}`,
+      { automationId: z.string(), ...scheduleShape },
+      async (args) => {
+        try {
+          const fields = await scheduled(args);
+          const saved = await convex.mutation(api.automations.reschedule, {
+            automationId: args.automationId,
+            conversationId,
+            ...fields,
+            scheduleKind: fields.scheduleKind!,
+            nextRunAt: fields.nextRunAt!,
+          });
+          return runtimeText(
+            saved
+              ? confirmation(args.automationId, "rescheduled", fields)
+              : "Not found.",
+            Boolean(saved),
+          );
+        } catch (err) {
+          return runtimeText(String(err), false);
+        }
+      },
+    ),
     defineRuntimeTool(
       NAMESPACE,
       "toggle_automation",
-      "Enable or disable an automation by id.",
+      "Pause or resume a reminder/task. Completed one-time reminders need rescheduling.",
       { automationId: z.string(), enabled: z.boolean() },
       async (args) => {
-        const id = await convex.mutation(api.automations.setEnabled, args);
-        return runtimeText(id ? `Set ${args.automationId} enabled=${args.enabled}.` : "Not found.");
+        try {
+          const saved = await convex.mutation(api.automations.setEnabled, args);
+          return runtimeText(
+            saved
+              ? `Set ${args.automationId} enabled=${args.enabled}.`
+              : "Not found.",
+            Boolean(saved),
+          );
+        } catch (err) {
+          return runtimeText(String(err), false);
+        }
       },
     ),
-
     defineRuntimeTool(
       NAMESPACE,
       "delete_automation",
-      "Permanently remove an automation.",
+      "Remove a reminder/task.",
       { automationId: z.string() },
       async (args) => {
-        const id = await convex.mutation(api.automations.remove, args);
-        return runtimeText(id ? `Deleted ${args.automationId}.` : "Not found.");
+        const saved = await convex.mutation(api.automations.remove, args);
+        return runtimeText(
+          saved ? `Deleted ${args.automationId}.` : "Not found.",
+          Boolean(saved),
+        );
       },
     ),
   ];
 }
-
 export function createAutomationMcp(conversationId: string) {
-  return createClaudeMcpServer(NAMESPACE, createAutomationTools(conversationId));
+  return createClaudeMcpServer(
+    NAMESPACE,
+    createAutomationTools(conversationId),
+  );
 }

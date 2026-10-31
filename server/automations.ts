@@ -1,124 +1,132 @@
-import { Cron } from "croner";
+import { redactPhoneNumbers } from "./privacy.js";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { spawnExecutionAgent } from "./execution-agent.js";
 import { sendConversationNotification } from "./notifications.js";
 import { broadcast } from "./broadcast.js";
 import { getUserTimezone } from "./timezone-config.js";
+import { followingRun, nextCronRun } from "./reminder-schedule.js";
 
-function randomId(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-// Both helpers accept an optional IANA timezone — when present, croner
-// evaluates the cron expression in that zone. Without it, croner falls back
-// to the server's local zone, which is almost always wrong for users in a
-// different timezone than the host machine.
-export function nextRunFor(schedule: string, timezone?: string): number | null {
+export function nextRunFor(schedule: string, timezone = "UTC"): number | null {
   try {
-    const c = new Cron(schedule, { paused: true, ...(timezone ? { timezone } : {}) });
-    const next = c.nextRun();
-    return next ? next.getTime() : null;
+    return nextCronRun(schedule, timezone);
   } catch {
     return null;
   }
 }
-
 export function validateSchedule(
   schedule: string,
-  timezone?: string,
+  timezone = "UTC",
 ): { valid: boolean; error?: string } {
   try {
-    new Cron(schedule, { paused: true, ...(timezone ? { timezone } : {}) }).nextRun();
+    if (nextCronRun(schedule, timezone) === null)
+      return { valid: false, error: "No future occurrence" };
     return { valid: true };
   } catch (err) {
     return { valid: false, error: String(err) };
   }
 }
+function randomId() {
+  return `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
 
-async function runAutomation(a: {
-  automationId: string;
-  name: string;
-  task: string;
-  integrations: string[];
-  schedule: string;
-  timezone?: string;
-  conversationId?: string;
-  notifyConversationId?: string;
-}): Promise<void> {
-  const runId = randomId("run");
-  await convex.mutation(api.automations.createRun, {
+async function runAutomation(automationId: string): Promise<void> {
+  const runId = randomId();
+  const a = await convex.mutation(api.automations.claimRun, {
+    automationId,
     runId,
-    automationId: a.automationId,
   });
-  broadcast("automation_started", { automationId: a.automationId, runId, name: a.name });
-
+  if (!a) return;
+  const claim = { automationId, runId };
+  let leaseLost = false;
+  const heartbeat = setInterval(() => {
+    convex
+      .mutation(api.automations.renewClaim, claim)
+      .then((ok) => {
+        if (!ok) leaseLost = true;
+      })
+      .catch(() => {
+        leaseLost = true;
+      });
+  }, 30000);
+  broadcast("automation_started", { ...claim, name: a.name });
+  let result: string | undefined;
+  let agentId: string | undefined;
+  let error: string | undefined;
   try {
-    const res = await spawnExecutionAgent({
-      task: `AUTOMATION "${a.name}": ${a.task}`,
-      integrations: a.integrations,
-      conversationId: a.conversationId,
-      name: `auto:${a.name}`,
-    });
-    await convex.mutation(api.automations.updateRun, {
-      runId,
-      status: res.status === "completed" ? "completed" : "failed",
-      result: res.result,
-      agentId: res.agentId,
-    });
-
-    if (a.notifyConversationId && res.result) {
-      await sendConversationNotification(a.notifyConversationId, `[${a.name}]\n\n${res.result}`);
+    if (a.delivery === "reminder") {
+      if (!a.reminderText) throw new Error("Reminder text is missing.");
+      result = a.reminderText;
+    } else {
+      const res = await spawnExecutionAgent({
+        task: `AUTOMATION "${a.name}": ${a.task}`,
+        integrations: a.integrations,
+        conversationId: a.conversationId,
+        name: `auto:${a.name}`,
+      });
+      result = res.result;
+      agentId = res.agentId;
+      if (res.status !== "completed")
+        error = res.result || "Automation execution failed.";
+    }
+    if (
+      leaseLost ||
+      !(await convex.mutation(api.automations.renewClaim, claim))
+    )
+      throw new Error("Reminder paused, removed, or execution lease lost.");
+    if (a.notifyConversationId && result) {
+      const text = redactPhoneNumbers(`[${a.name}]\n\n${result}`);
+      await sendConversationNotification(a.notifyConversationId, text);
       await convex.mutation(api.messages.send, {
         conversationId: a.notifyConversationId,
         role: "assistant",
-        content: `[${a.name}]\n\n${res.result}`,
+        content: text,
       });
     }
-
-    broadcast("automation_completed", { automationId: a.automationId, runId });
   } catch (err) {
-    await convex.mutation(api.automations.updateRun, {
-      runId,
-      status: "failed",
-      error: String(err),
-    });
-    broadcast("automation_failed", { automationId: a.automationId, runId, error: String(err) });
+    error = String(err);
+  } finally {
+    clearInterval(heartbeat);
   }
-
-  // Pre-TZ automations have no stored timezone — fall back to whatever the
-  // user's current setting is so they don't keep firing in the host zone.
-  const tz = a.timezone ?? (await getUserTimezone());
-  const next = nextRunFor(a.schedule, tz);
-  await convex.mutation(api.automations.markRan, {
-    automationId: a.automationId,
-    lastRunAt: Date.now(),
-    nextRunAt: next ?? undefined,
+  const timezone = a.timezone ?? (await getUserTimezone());
+  let nextRunAt: number | undefined;
+  try {
+    nextRunAt = followingRun(a, Date.now(), timezone) ?? undefined;
+  } catch (err) {
+    error ??= String(err);
+  }
+  await convex.mutation(api.automations.finishRun, {
+    ...claim,
+    success: error === undefined,
+    result,
+    agentId,
+    error,
+    nextRunAt,
+  });
+  broadcast(error ? "automation_failed" : "automation_completed", {
+    ...claim,
+    ...(error ? { error } : {}),
   });
 }
-
 export async function tickAutomations(): Promise<void> {
-  const all = await convex.query(api.automations.list, { enabledOnly: true });
   const now = Date.now();
-  const due = all.filter((a) => a.nextRunAt !== undefined && a.nextRunAt <= now);
-  for (const a of due) {
-    // fire-and-forget so one slow automation doesn't block others
-    runAutomation({
-      automationId: a.automationId,
-      name: a.name,
-      task: a.task,
-      integrations: a.integrations,
-      schedule: a.schedule,
-      timezone: a.timezone,
-      conversationId: a.conversationId,
-      notifyConversationId: a.notifyConversationId,
-    }).catch((err) => console.error("[automations] run error", err));
-  }
+  const all = await convex.query(api.automations.due, { now });
+  await Promise.all(
+    all
+      .filter((a) => a.nextRunAt !== undefined && a.nextRunAt <= now)
+      .map((a) =>
+        runAutomation(a.automationId).catch((err) =>
+          console.error("[automations] run error", err),
+        ),
+      ),
+  );
 }
-
-export function startAutomationLoop(intervalMs = 30_000): () => void {
-  const timer = setInterval(() => {
-    tickAutomations().catch((err) => console.error("[automations] tick error", err));
-  }, intervalMs);
+export function startAutomationLoop(intervalMs = 10000): () => void {
+  const tick = () =>
+    tickAutomations().catch((err) =>
+      console.error("[automations] tick error", err),
+    );
+  void tick();
+  const timer = setInterval(tick, intervalMs);
   return () => clearInterval(timer);
 }

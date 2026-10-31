@@ -11,8 +11,15 @@ import {
   subtlePanelClass,
 } from "./PanelPrimitives.js";
 
-function formatSchedule(schedule: string): string {
-  return schedule;
+function formatSchedule(auto: {schedule:string;scheduleKind?:string;anchorAt?:number;timezone?:string}): string {
+  if (auto.scheduleKind === "once" && auto.anchorAt) return `Once · ${new Date(auto.anchorAt).toLocaleString([], {timeZone:auto.timezone})}`;
+  return auto.schedule;
+}
+function scheduleStatus(auto: {scheduleKind?:string;completedAt?:number;enabled:boolean;lastError?:string}): string {
+  if(auto.completedAt)return "Completed";
+  if(!auto.enabled&&auto.lastError)return "Failed";
+  if(!auto.enabled)return "Paused";
+  return auto.scheduleKind === "once" ? "One time" : "Recurring";
 }
 
 function timeAgo(ts?: number): string {
@@ -67,7 +74,7 @@ export function AutomationsPanel({ isDark }: { isDark: boolean }) {
           </div>
         ) : list.length === 0 ? (
           <EmptyState isDark={isDark}>
-            No automations yet. Text the agent: <em>"every morning at 8, summarize my calendar"</em>.
+            No reminders or scheduled tasks yet. Try <em>"remind me in 30 minutes"</em> or <em>"every Monday at 9am"</em>.
           </EmptyState>
         ) : (
           list.map((auto: any) => (
@@ -85,6 +92,8 @@ export function AutomationsPanel({ isDark }: { isDark: boolean }) {
                       enabled: !auto.enabled,
                     });
                   }}
+                  disabled={auto.scheduleKind === "once" && Boolean(auto.completedAt)}
+                  title={auto.completedAt ? "Completed; ask Boop to reschedule this reminder" : "Pause or resume"}
                   className={`toggle-switch relative inline-flex items-center w-9 h-5 rounded-full shrink-0 ${
                     auto.enabled
                       ? "bg-emerald-500"
@@ -115,11 +124,11 @@ export function AutomationsPanel({ isDark }: { isDark: boolean }) {
                       : "bg-zinc-100 text-zinc-700"
                   }`}
                 >
-                  Scheduled
+                  {scheduleStatus(auto)}
                 </span>
 
                 <span className={`text-xs ml-auto mono ${mutedText}`}>
-                  {formatSchedule(auto.schedule)}
+                  {formatSchedule(auto)}
                 </span>
               </div>
 
@@ -137,13 +146,11 @@ export function AutomationsPanel({ isDark }: { isDark: boolean }) {
                 }`}
               >
                 {auto.lastRunAt && <span>Last run: {timeAgo(auto.lastRunAt)}</span>}
-                {auto.nextRunAt && auto.enabled && (
+                {auto.lastError && <p className="text-xs text-rose-500">Last attempt: {auto.lastError}</p>}
+        {auto.nextRunAt && auto.enabled && (
                   <span>
                     Next:{" "}
-                    {new Date(auto.nextRunAt).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+                    {new Date(auto.nextRunAt).toLocaleString([], {timeZone:auto.timezone})}
                   </span>
                 )}
                 {auto.integrations.length > 0 && (
@@ -200,7 +207,9 @@ function AutomationDetail({
           onClick={() =>
             setEnabled({ automationId: auto.automationId, enabled: !auto.enabled })
           }
-          className={`toggle-switch relative inline-flex items-center w-9 h-5 rounded-full shrink-0 ${
+          disabled={auto.scheduleKind === "once" && Boolean(auto.completedAt)}
+                  title={auto.completedAt ? "Completed; ask Boop to reschedule this reminder" : "Pause or resume"}
+                  className={`toggle-switch relative inline-flex items-center w-9 h-5 rounded-full shrink-0 ${
             auto.enabled
               ? "bg-emerald-500"
               : isDark
@@ -230,11 +239,11 @@ function AutomationDetail({
               : "bg-zinc-100 text-zinc-700"
           }`}
         >
-          Scheduled
+          {scheduleStatus(auto)}
         </span>
 
         <span className={`text-xs ml-auto mono ${mutedText}`}>
-          {formatSchedule(auto.schedule)}
+          {formatSchedule(auto)}
         </span>
 
         <button
@@ -293,7 +302,7 @@ function AutomationDetail({
             <span
               className={`text-xs ${bodyTextClass(isDark)}`}
             >
-              {new Date(auto.nextRunAt).toLocaleString()}
+              {new Date(auto.nextRunAt).toLocaleString([], {timeZone:auto.timezone})}
             </span>
           </div>
         )}

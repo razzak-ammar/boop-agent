@@ -1,4 +1,5 @@
 import "./env-setup.js";
+import { startTelegram } from "./telegram.js";
 import express from "express";
 import cors from "cors";
 import { createServer } from "node:http";
@@ -198,6 +199,11 @@ async function main() {
     ws.send(JSON.stringify({ event: "hello", data: { ok: true }, at: Date.now() }));
   });
 
+  const telegram = await startTelegram((message) => handleUserMessage({
+    ...message,
+    persistAssistantReply: true,
+  }));
+
   const port = Number(process.env.PORT ?? 3456);
   server.listen(port, () => {
     console.log(`boop-agent server listening on :${port}`);
@@ -213,6 +219,7 @@ async function main() {
     process.on(sig, () => {
       if (shuttingDown) return;
       shuttingDown = true;
+      telegram?.stop();
       closeLocalBrowser()
         .catch(() => undefined)
         .finally(() => process.exit(signalExitCodes[sig]));

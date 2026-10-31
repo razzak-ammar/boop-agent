@@ -4,6 +4,9 @@
 
 # Boop
 
+**This fork's Telegram/Codex alpha:** see [TELEGRAM_ALPHA.md](./TELEGRAM_ALPHA.md)
+for private phone chat without Sendblue, recurring reminder delivery, and setup.
+
 An iMessage-based personal agent you can run with either your Claude Code subscription or your Codex / ChatGPT subscription.
 
 Choose your runtime during setup:

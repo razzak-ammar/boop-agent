@@ -34,6 +34,7 @@ type DashboardSurface = {
 type DailyBucket = {
   day: string;
   agentCost: number;
+  unknownCostRows?: number;
   inputTokens: number;
   outputTokens: number;
   agentsSpawned: number;
@@ -111,6 +112,7 @@ export function DashboardPanel({ isDark }: { isDark: boolean }) {
       : data.dailyBuckets;
 
     let agentCost = 0;
+    let unknownCostRows = 0;
     let inputTokens = 0;
     let outputTokens = 0;
     let agentsSpawned = 0;
@@ -121,6 +123,7 @@ export function DashboardPanel({ isDark }: { isDark: boolean }) {
 
     for (const d of days) {
       agentCost += d.agentCost;
+      unknownCostRows += d.unknownCostRows ?? 0;
       inputTokens += d.inputTokens;
       outputTokens += d.outputTokens;
       agentsSpawned += d.agentsSpawned;
@@ -133,7 +136,7 @@ export function DashboardPanel({ isDark }: { isDark: boolean }) {
     const totalTokens = inputTokens + outputTokens;
     return {
       days,
-      cost: { total: agentCost, agents: agentCost },
+      cost: { total: agentCost, agents: agentCost, unknownCostRows },
       tokens: { input: inputTokens, output: outputTokens, total: totalTokens },
       agents: {
         total: agentsSpawned,
@@ -232,8 +235,8 @@ export function DashboardPanel({ isDark }: { isDark: boolean }) {
               className={`grid divide-y ${c.divider} md:grid-cols-3 md:divide-x md:divide-y-0`}
             >
               <SummaryCell
-                label="Estimated cost"
-                value={`$${filtered.cost.total.toFixed(2)}`}
+                label="API-equivalent estimate"
+                value={`${filtered.cost.unknownCostRows ? "≥" : "~"}$${filtered.cost.total.toFixed(4)}`}
                 c={c}
               />
               <SummaryCell label="Total tokens" value={fmtTokens(filtered.tokens.total)} c={c} />
@@ -246,7 +249,7 @@ export function DashboardPanel({ isDark }: { isDark: boolean }) {
                   keys={["agentCost"]}
                   colors={isDark ? ["#38bdf8"] : ["#0284c7"]}
                   labels={["LLM usage"]}
-                  format={(v) => `$${v.toFixed(2)}`}
+                  format={(v) => `~$${v.toFixed(4)}`}
                   isDark={isDark}
                 />
               ) : (
@@ -352,9 +355,9 @@ export function DashboardPanel({ isDark }: { isDark: boolean }) {
             c={c}
           />
           <MetricTile
-            label="Estimated cost"
-            value={`$${filtered.cost.total.toFixed(2)}`}
-            sub="API-equivalent spend"
+            label="API-equivalent estimate"
+            value={`${filtered.cost.unknownCostRows ? "≥" : "~"}$${filtered.cost.total.toFixed(4)}`}
+            sub={filtered.cost.unknownCostRows ? `${filtered.cost.unknownCostRows} rows have unknown pricing` : "Comparison only · not subscription billing"}
             icon={WorkflowCircle03Icon}
             color={isDark ? "text-emerald-400" : "text-emerald-600"}
             c={c}
@@ -369,7 +372,7 @@ export function DashboardPanel({ isDark }: { isDark: boolean }) {
                   </p>
                   <p>
                     Subscription-backed runtimes still bill through the subscription,
-                    so treat this as a usage proxy.
+                    so this does not estimate your bill or remaining allowance. Unknown-price rows are excluded and flagged.
                   </p>
                 </>
               ),

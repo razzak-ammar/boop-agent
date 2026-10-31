@@ -1,3 +1,4 @@
+import { formatRecordCost, CODEX_COST_NOTE } from "../../../server/token-pricing.js";
 import { useState, type ReactNode } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api.js";
@@ -138,10 +139,6 @@ function integrationBadgesForAgent(
 
 function integrationDisplayName(raw: string): string {
   return getIntegrationBrand(raw)?.displayName ?? prettyToolName(raw);
-}
-
-function formatCostUsd(costUsd: number, estimated: boolean): string {
-  return `${estimated ? "~" : ""}$${costUsd.toFixed(4)}`;
 }
 
 function buildTimeline(logs: LogEntry[]): TimelineItem[] {
@@ -655,12 +652,12 @@ export function AgentsPanel({ isDark }: { isDark: boolean }) {
 
                 {(agent.costUsd > 0 || totalTokens > 0) && (
                   <div className="flex items-center gap-3 text-[10px] mono mb-2">
-                    {agent.costUsd > 0 && (
+                    {(totalTokens > 0 || agent.costUsd > 0) && (
                       <span
                         className="text-emerald-500 font-semibold"
-                        title={estimatedCost ? "API-equivalent estimate from Codex runtime tokens" : undefined}
+                        title={estimatedCost ? CODEX_COST_NOTE : undefined}
                       >
-                        {formatCostUsd(agent.costUsd, estimatedCost)}
+                        {formatRecordCost(agent)}
                       </span>
                     )}
                     {totalTokens > 0 && (
@@ -755,22 +752,28 @@ function AgentDetail({
         </span>
         <span className={`text-xs ${cfg.color}`}>{cfg.label}</span>
         <div className="ml-auto flex items-center gap-3 text-xs mono">
-          {agent.costUsd > 0 && (
+          {(totalTokens > 0 || agent.costUsd > 0) && (
             <span
               className="text-emerald-500 font-semibold"
-              title={estimatedCost ? "API-equivalent estimate from Codex runtime tokens" : undefined}
+              title={estimatedCost ? CODEX_COST_NOTE : undefined}
             >
-              {formatCostUsd(agent.costUsd, estimatedCost)}
+              {formatRecordCost(agent)}
             </span>
           )}
           {totalTokens > 0 && (
-            <span className={isDark ? "text-slate-500" : "text-slate-400"}>
+            <span title={`${agent.inputTokens.toLocaleString()} input (including ${(agent.cacheReadTokens ?? 0).toLocaleString()} cached), ${agent.outputTokens.toLocaleString()} output. Worker only; dispatcher and memory calls are separate.`} className={isDark ? "text-slate-500" : "text-slate-400"}>
               {(totalTokens / 1000).toFixed(1)}k tok
             </span>
           )}
         </div>
       </div>
 
+      {estimatedCost && (
+        <p className="text-xs text-slate-500">
+          Uses your ChatGPT subscription. API equivalent is a comparison, not a bill.{" "}
+          <a href="https://chatgpt.com/codex/settings/usage" target="_blank" rel="noreferrer" className="underline">Check allowance</a>
+        </p>
+      )}
       <div>
         <div
           className={panelCardClass(isDark, "px-4 py-3")}

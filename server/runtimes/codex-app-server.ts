@@ -389,7 +389,7 @@ class CodexAppServerClient {
           cacheCreationTokens: 0,
           costUsd: 0,
         };
-        nextUsage.costUsd = estimateOpenAiCostUsd(nextUsage);
+        nextUsage.costUsd = estimateOpenAiCostUsd(nextUsage) ?? 0;
         this.usage = nextUsage;
         void this.request?.onUsage?.(nextUsage);
       }

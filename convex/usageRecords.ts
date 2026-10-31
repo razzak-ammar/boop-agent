@@ -1,3 +1,4 @@
+import { costForRecord } from "../server/token-pricing";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
@@ -70,8 +71,11 @@ export const summary = query({
       { costUsd: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; count: number }
     > = {};
     let totalCost = 0;
+    let unknownCostRows = 0;
     for (const r of rows) {
-      totalCost += r.costUsd;
+      const cost = costForRecord(r);
+      totalCost += cost ?? 0;
+      if (cost === null) unknownCostRows++;
       const bucket = (bySource[r.source] ??= {
         costUsd: 0,
         inputTokens: 0,
@@ -80,13 +84,13 @@ export const summary = query({
         cacheCreationTokens: 0,
         count: 0,
       });
-      bucket.costUsd += r.costUsd;
+      bucket.costUsd += cost ?? 0;
       bucket.inputTokens += r.inputTokens;
       bucket.outputTokens += r.outputTokens;
       bucket.cacheReadTokens += r.cacheReadTokens;
       bucket.cacheCreationTokens += r.cacheCreationTokens;
       bucket.count += 1;
     }
-    return { totalCost, bySource, rowCount: rows.length };
+    return { totalCost, unknownCostRows, bySource, rowCount: rows.length };
   },
 });

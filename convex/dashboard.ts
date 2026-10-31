@@ -1,3 +1,4 @@
+import { costForRecord } from "../server/token-pricing";
 import { query } from "./_generated/server";
 import {
   DEMO_SCAN_LIMIT,
@@ -51,6 +52,7 @@ export const metrics = query({
       {
         day: string;
         agentCost: number;
+        unknownCostRows: number;
         inputTokens: number;
         outputTokens: number;
         agentsSpawned: number;
@@ -70,6 +72,7 @@ export const metrics = query({
         b = {
           day,
           agentCost: 0,
+          unknownCostRows: 0,
           inputTokens: 0,
           outputTokens: 0,
           agentsSpawned: 0,
@@ -87,7 +90,9 @@ export const metrics = query({
 
     for (const r of usageRecords) {
       const b = bucketFor(keyFor(r.createdAt));
-      b.agentCost += r.costUsd ?? 0;
+      const cost = costForRecord(r);
+      b.agentCost += cost ?? 0;
+      if (cost === null) b.unknownCostRows++;
       b.inputTokens += r.inputTokens ?? 0;
       b.outputTokens += r.outputTokens ?? 0;
       if (r.agentId) usageAgentIds.add(r.agentId);
@@ -97,7 +102,9 @@ export const metrics = query({
       const b = bucketFor(keyFor(a.startedAt));
       b.agentsSpawned += 1;
       if (!usageAgentIds.has(a.agentId)) {
-        b.agentCost += a.costUsd ?? 0;
+        const cost = costForRecord(a);
+        b.agentCost += cost ?? 0;
+        if (cost === null) b.unknownCostRows++;
         b.inputTokens += a.inputTokens ?? 0;
         b.outputTokens += a.outputTokens ?? 0;
       }

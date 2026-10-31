@@ -16,7 +16,7 @@ describe("persistent user services", () => {
     expect(units["boop-dashboard.service"]).toContain("--host 127.0.0.1 --strictPort");
   });
   it("quotes paths and refuses newline injection into a service unit", () => {
-    expect(renderServiceUnits({ root: "/opt/Boop App", node: "/bin/node", path: "/bin" })["boop.service"]).toContain('WorkingDirectory="/opt/Boop App"');
+    expect(renderServiceUnits({ root: "/opt/Boop App", node: "/bin/node", path: "/bin" })["boop.service"]).toContain('WorkingDirectory=/opt/Boop App');
     expect(() => renderServiceUnits({ root: "/opt/boop\nExecStart=/bin/false", node: "/bin/node", path: "/bin" })).toThrow("control characters");
   });
 });

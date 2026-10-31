@@ -10,7 +10,8 @@ function quote(value) {
 }
 
 export function renderServiceUnits({ root, node, path }) {
-  const shared = `WorkingDirectory=${quote(root)}
+  if (/[\r\n\0]/.test(root)) throw new Error("Service paths must not contain control characters.");
+  const shared = `WorkingDirectory=${root.replaceAll("%", "%%")}
 Environment=${quote(`PATH=${path}`)}
 UMask=0077
 Restart=on-failure
@@ -62,9 +63,15 @@ export function installServices() {
   const directory = join(homedir(), ".config", "systemd", "user");
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   for (const [name, content] of Object.entries(units)) writeFileSync(join(directory, name), content, { mode: 0o600 });
+  const validation = spawnSync("systemd-analyze", ["--user", "verify", ...Object.keys(units).map((name) => join(directory, name))], { stdio: "inherit" });
+  if (validation.status !== 0) throw new Error("systemd rejected the generated unit files; services were not started.");
   for (const args of [["--user", "daemon-reload"], ["--user", "enable", "--now", "boop.service", "boop-dashboard.service"]]) {
     const result = spawnSync("systemctl", args, { stdio: "inherit" });
     if (result.status !== 0) throw new Error(`systemctl ${args.join(" ")} failed. Unit files were saved in ${directory}.`);
+  }
+  for (const name of Object.keys(units)) {
+    const active = spawnSync("systemctl", ["--user", "is-active", "--quiet", name]);
+    if (active.status !== 0) throw new Error(`${name} did not start; inspect systemctl --user status boop boop-dashboard.`);
   }
   console.log("Boop and the existing dashboard are enabled as user services.");
   console.log("To keep them running after logout/reboot: sudo loginctl enable-linger $(whoami)");

@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import { CODEX_MODELS, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT } from "../server/model-catalog.js";
 import prompts from "prompts";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -13,8 +14,6 @@ const EXAMPLE_PATH = resolve(ROOT, ".env.example");
 type RuntimeChoice = "claude" | "codex";
 
 const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
-const DEFAULT_CODEX_MODEL = "gpt-5.5";
-const DEFAULT_CODEX_REASONING_EFFORT = "medium";
 
 interface CommandSpec {
   cmd: string;
@@ -27,12 +26,7 @@ const CLAUDE_MODEL_CHOICES = [
   { title: "claude-haiku-4-5 (fastest, cheapest)", value: "claude-haiku-4-5" },
 ];
 
-const CODEX_MODEL_CHOICES = [
-  { title: "gpt-5.5 (most capable)", value: "gpt-5.5" },
-  { title: "gpt-5.4-mini (faster local testing)", value: "gpt-5.4-mini" },
-  { title: "gpt-5.4 (balanced)", value: "gpt-5.4" },
-  { title: "gpt-5.3-codex (coding optimized)", value: "gpt-5.3-codex" },
-];
+const CODEX_MODEL_CHOICES = CODEX_MODELS.map(({ value, label }) => ({ title: label, value }));
 
 const CODEX_REASONING_CHOICES = [
   { title: "low (fastest)", value: "low" },
@@ -42,7 +36,7 @@ const CODEX_REASONING_CHOICES = [
 ];
 
 function runtimeFromEnv(value: string | undefined): RuntimeChoice {
-  return value === "codex" ? "codex" : "claude";
+  return value === "claude" ? "claude" : "codex";
 }
 
 function initialForChoice<T extends readonly { value: string }[]>(

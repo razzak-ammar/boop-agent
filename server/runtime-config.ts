@@ -1,3 +1,4 @@
+import { CODEX_MODELS, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT } from "./model-catalog.js";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import type { RuntimeName, RuntimeReasoningEffort } from "./runtimes/types.js";
@@ -93,27 +94,14 @@ export const KNOWN_MODELS = new Set<string>([
 ]);
 
 export const CODEX_MODEL_ALIASES: Record<string, string> = {
-  "5.5": "gpt-5.5",
-  "gpt 5.5": "gpt-5.5",
-  "gpt-5.5": "gpt-5.5",
-  "5.4": "gpt-5.4",
-  "gpt 5.4": "gpt-5.4",
-  "gpt-5.4": "gpt-5.4",
-  mini: "gpt-5.4-mini",
-  "5.4 mini": "gpt-5.4-mini",
-  "gpt-5.4-mini": "gpt-5.4-mini",
-  codex: "gpt-5.3-codex",
-  "5.3 codex": "gpt-5.3-codex",
-  "gpt-5.3-codex": "gpt-5.3-codex",
+  luna: "gpt-6-luna",
+  mini: "gpt-6-luna",
+  sol: "gpt-6.1-sol",
+  terra: "gpt-6.1-terra",
+  astra: "gpt-6-astra",
 };
 
-export const KNOWN_CODEX_MODELS = new Set<string>([
-  "gpt-5.5",
-  "gpt-5.4",
-  "gpt-5.4-mini",
-  "gpt-5.3-codex",
-  "gpt-5.2",
-]);
+export const KNOWN_CODEX_MODELS = new Set(CODEX_MODELS.map((model) => model.value));
 
 const KNOWN_REASONING_EFFORTS = new Set<RuntimeReasoningEffort>([
   "minimal",
@@ -141,7 +129,7 @@ export function resolveModelInput(
 }
 
 function resolveRuntimeValue(input: string | null): RuntimeName {
-  const envRuntime = resolveRuntimeInput(process.env.BOOP_RUNTIME ?? "") ?? "claude";
+  const envRuntime = resolveRuntimeInput(process.env.BOOP_RUNTIME ?? "") ?? "codex";
   return input ? (resolveRuntimeInput(input) ?? envRuntime) : envRuntime;
 }
 
@@ -150,14 +138,14 @@ function claudeEnvFallback(): string {
 }
 
 function codexEnvFallback(): string {
-  return process.env.BOOP_CODEX_MODEL ?? "gpt-5.5";
+  return resolveModelInput(process.env.BOOP_CODEX_MODEL ?? "", "codex") ?? DEFAULT_CODEX_MODEL;
 }
 
 function resolveReasoningEffort(input: string | null): RuntimeReasoningEffort {
   return (
     resolveReasoningEffortInput(
-      input ?? process.env.BOOP_CODEX_REASONING_EFFORT ?? "medium",
-    ) ?? "medium"
+      input ?? process.env.BOOP_CODEX_REASONING_EFFORT ?? DEFAULT_CODEX_REASONING_EFFORT,
+    ) ?? DEFAULT_CODEX_REASONING_EFFORT
   );
 }
 

@@ -1,3 +1,4 @@
+import { DEFAULT_CODEX_MODEL } from "../model-catalog.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
 import {
@@ -77,7 +78,7 @@ function createIsolatedCodexHome(): string {
   writeFileSync(
     join(codexHome, "config.toml"),
     [
-      'model = "gpt-5.5"',
+      `model = "${DEFAULT_CODEX_MODEL}"`,
       'approval_policy = "never"',
       'sandbox_mode = "read-only"',
       'web_search = "disabled"',

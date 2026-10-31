@@ -1,3 +1,4 @@
+import { DEFAULT_CODEX_MODEL } from "./model-catalog.js";
 import { z } from "zod";
 import {
   CURATED_TOOLKITS,
@@ -52,7 +53,7 @@ export function createSelfTools(): RuntimeTool[] {
           reasoningEffort: runtime.reasoningEffort ?? null,
           billingMode: runtime.billingMode,
           claudeEnvDefault: process.env.BOOP_MODEL ?? "claude-sonnet-4-6",
-          codexEnvDefault: process.env.BOOP_CODEX_MODEL ?? "gpt-5.5",
+          codexEnvDefault: resolveModelInput(process.env.BOOP_CODEX_MODEL ?? "", "codex") ?? DEFAULT_CODEX_MODEL,
           availableClaudeModels: [...KNOWN_MODELS],
           availableCodexModels: [...KNOWN_CODEX_MODELS],
           userTimezone: tzInfo.isExplicit ? tzInfo.timezone : null,
@@ -141,7 +142,7 @@ Use when the user says "use opus", "switch to sonnet", "use Codex mini", "make i
       {
         model: z
           .string()
-          .describe('Model to use. Canonical ID like "claude-opus-4-7" or "gpt-5.4-mini", or an alias.'),
+          .describe('Model to use. Canonical ID like "claude-opus-4-7" or "gpt-6-luna", or an alias.'),
       },
       async ({ model }) => {
         const runtime = (await getRuntimeConfig()).runtime;

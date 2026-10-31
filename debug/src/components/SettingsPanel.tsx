@@ -1,3 +1,4 @@
+import { CODEX_MODELS } from "../../../server/model-catalog.js";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -80,13 +81,6 @@ const CLAUDE_MODELS: Option[] = [
   { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
 ];
 
-const CODEX_MODELS: Option[] = [
-  { value: "gpt-5.5", label: "GPT-5.5" },
-  { value: "gpt-5.4", label: "GPT-5.4" },
-  { value: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
-  { value: "gpt-5.3-codex", label: "GPT-5.3 Agent" },
-  { value: "gpt-5.2", label: "GPT-5.2" },
-];
 
 const CODEX_REASONING_EFFORTS: Option<ReasoningEffort>[] = [
   { value: "minimal", label: "Minimal" },

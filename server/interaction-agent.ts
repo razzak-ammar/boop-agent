@@ -1,3 +1,4 @@
+import { formatRecordCost } from "./token-pricing.js";
 import { z } from "zod";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
@@ -316,6 +317,10 @@ export function resolveSpawnIntegrations(
   return requested;
 }
 
+export function unavailableSpawnIntegrations(requested: string[], available: string[]): string[] {
+  return [...new Set(requested.filter((name) => !available.includes(name)))];
+}
+
 export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   const turnId = randomId("turn");
   const integrations = (await listEnabledIntegrations()).map((i) => i.name);
@@ -493,11 +498,16 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           args.imageRefs,
           spawnableImageStorageIds,
         );
-        const selectedIntegrations = resolveSpawnIntegrations(
+        const requestedIntegrations = resolveSpawnIntegrations(
           args.integrations,
           integrations,
           opts.content,
-        ).filter((name) => integrations.includes(name));
+        );
+        const unavailable = unavailableSpawnIntegrations(requestedIntegrations, integrations);
+        if (unavailable.length) {
+          return runtimeText(`Cannot run this task: integrations unavailable: ${unavailable.join(", ")}. Connected integrations: ${integrations.join(", ") || "none"}. Ask the user to connect the required service in Connections. Do not claim to have checked their data or substitute another calendar provider.`, false);
+        }
+        const selectedIntegrations = requestedIntegrations;
         const browserForced =
           selectedIntegrations.length === 1 &&
           selectedIntegrations[0] === "browser" &&
@@ -602,7 +612,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
 
   if (usage.costUsd > 0 || usage.inputTokens > 0) {
     log(
-      `cost: in/out ${usage.inputTokens}/${usage.outputTokens}, cache r/w ${usage.cacheReadTokens}/${usage.cacheCreationTokens}, $${usage.costUsd.toFixed(4)}`,
+      `cost: in/out ${usage.inputTokens}/${usage.outputTokens}, cache r/w ${usage.cacheReadTokens}/${usage.cacheCreationTokens}, ${formatRecordCost({ ...usage, ...runtimeConfig })}`,
     );
     await convex.mutation(api.usageRecords.record, {
       source: "dispatcher",

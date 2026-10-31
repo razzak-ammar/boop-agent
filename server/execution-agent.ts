@@ -1,3 +1,4 @@
+import { formatRecordCost } from "./token-pricing.js";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { broadcast } from "./broadcast.js";
@@ -5,6 +6,7 @@ import {
   buildMcpServersForIntegrations,
   buildRuntimeToolsForIntegrations,
   listIntegrations,
+  listEnabledIntegrations,
 } from "./integrations/registry.js";
 import { createDraftStagingTools } from "./draft-tools.js";
 import { EMPTY_USAGE, type UsageTotals } from "./usage.js";
@@ -123,6 +125,11 @@ export interface SpawnResult {
 }
 
 export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promise<SpawnResult> {
+  const enabled = new Set((await listEnabledIntegrations()).map((mod) => mod.name));
+  const unavailable = opts.integrations.filter((name) => !enabled.has(name));
+  if (unavailable.length) {
+    return { agentId: "not-started", status: "failed", result: `Required integrations unavailable: ${unavailable.join(", ")}. Connect them in Connections before retrying.` };
+  }
   const agentId = randomId("agent");
   const name = opts.name ?? (opts.integrations.join("+") || "general");
   const abort = new AbortController();
@@ -240,7 +247,7 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
 
   const elapsed = ((Date.now() - agentStart) / 1000).toFixed(1);
   logAgent(
-    `done (${status}, ${elapsed}s, in/out tokens ${usage.inputTokens}/${usage.outputTokens}, cache r/w ${usage.cacheReadTokens}/${usage.cacheCreationTokens}, $${usage.costUsd.toFixed(4)})`,
+    `done (${status}, ${elapsed}s, in/out tokens ${usage.inputTokens}/${usage.outputTokens}, cache r/w ${usage.cacheReadTokens}/${usage.cacheCreationTokens}, ${formatRecordCost({ ...usage, ...runtimeConfig })})`,
   );
 
   await convex.mutation(api.agents.update, {

@@ -1,17 +1,8 @@
-import { DEFAULT_CODEX_MODEL } from "../model-catalog.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
+import { createIsolatedCodexHome } from "./codex-home.js";
 import readline from "node:readline";
 import type { ClientNotification } from "./codex-app-server-protocol/ClientNotification.js";
 import type { ClientRequest } from "./codex-app-server-protocol/ClientRequest.js";
@@ -58,35 +49,6 @@ type Pending<Result = unknown> = {
   resolve: (value: Result) => void;
   reject: (reason?: unknown) => void;
 };
-
-function createIsolatedCodexHome(): string {
-  const sourceHome = process.env.BOOP_CODEX_AUTH_HOME ?? process.env.CODEX_HOME ?? join(homedir(), ".codex");
-  const sourceAuth = join(sourceHome, "auth.json");
-  if (!existsSync(sourceAuth)) {
-    throw new Error(
-      `Codex auth not found at ${sourceAuth}. Run codex login or set BOOP_CODEX_AUTH_HOME to a Codex home containing auth.json.`,
-    );
-  }
-  const codexHome = mkdtempSync(join(tmpdir(), "boop-codex-home."));
-  mkdirSync(join(codexHome, "workspace"));
-  const targetAuth = join(codexHome, "auth.json");
-  try {
-    symlinkSync(sourceAuth, targetAuth);
-  } catch {
-    copyFileSync(sourceAuth, targetAuth);
-  }
-  writeFileSync(
-    join(codexHome, "config.toml"),
-    [
-      `model = "${DEFAULT_CODEX_MODEL}"`,
-      'approval_policy = "never"',
-      'sandbox_mode = "read-only"',
-      'web_search = "disabled"',
-      "",
-    ].join("\n"),
-  );
-  return codexHome;
-}
 
 function spawnCodexAppServer(): {
   child: ChildProcessWithoutNullStreams;

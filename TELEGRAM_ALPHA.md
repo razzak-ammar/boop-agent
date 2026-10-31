@@ -99,3 +99,13 @@ cloud accounts, or send any test content to a model or a live bot.
 References: [Telegram Bot API](https://core.telegram.org/bots/api),
 [Codex authentication](https://learn.chatgpt.com/docs/auth?surface=cli),
 [current models](https://learn.chatgpt.com/docs/models).
+
+### Fast note capture
+
+Send `/remember` followed by a paragraph to save the full text immediately.
+Boop then extracts searchable personal facts in the background, using one model
+request instead of a dispatcher/tool loop plus extraction. The original note
+remains saved if extraction is incomplete or fails. Use ordinary chat for
+questions, reminders, actions, or messages with images; those keep the full
+conversational flow. `/remember` treats its text as a note, not an instruction
+to execute actions embedded in it.

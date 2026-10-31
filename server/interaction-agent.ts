@@ -1,3 +1,4 @@
+import { parseRememberCommand, storeRawNote } from "./memory/note-intake.js";
 import { describeUserNow } from "./timezone-config.js";
 import { buildInteractionPrompt, PROACTIVE_SYSTEM } from "./interaction-prompt.js";
 import { shouldExtractMemory } from "./memory/extraction-policy.js";
@@ -171,6 +172,25 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   // Snapshot runtime for this top-level turn so same-turn set_runtime/set_model
   // changes do not split the dispatcher and any spawned execution agent.
   const runtimeConfig = await getRuntimeConfig();
+  const note = opts.kind !== "proactive" && !inboundImageStorageIds.length && !opts.mediaError
+    ? parseRememberCommand(opts.content) : null;
+  if (note !== null) {
+    const reply = note ? "Saved your full note. I'll organize the details into memory." : "Send /remember followed by the information you'd like me to save.";
+    if (note) await storeRawNote(opts.conversationId, turnId, note);
+    broadcast("assistant_message", { conversationId: opts.conversationId, content: reply });
+    if (opts.persistAssistantReply) {
+      await convex.mutation(api.messages.send, {
+        conversationId: opts.conversationId, role: "assistant", content: reply, turnId,
+      });
+    }
+    if (note) {
+      extractAndStore({ conversationId: opts.conversationId, userMessage: note,
+        assistantReply: reply, turnId, runtimeConfig,
+      }).catch((err) => console.error("[interaction] note extraction error", err));
+    }
+    return reply;
+  }
+
   const directRuntimeSwitch =
     opts.kind === "proactive" ? null : resolveDirectRuntimeSwitch(opts.content);
   if (directRuntimeSwitch) {

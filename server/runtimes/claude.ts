@@ -4,26 +4,28 @@ import {
   tool,
   type McpServerConfig,
   type McpSdkServerConfigWithInstance,
+  type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { RuntimeRunRequest, RuntimeRunResult, RuntimeTool } from "./types.js";
 import { aggregateUsageFromResult, EMPTY_USAGE } from "../usage.js";
 
-type ClaudePrompt =
-  | string
-  | AsyncIterable<{
-      type: "user";
-      session_id: string;
-      message: { role: "user"; content: unknown };
-      parent_tool_use_id: null;
-    }>;
+type ClaudePrompt = string | AsyncIterable<SDKUserMessage>;
 
 function toClaudePrompt(prompt: RuntimeRunRequest["prompt"]): ClaudePrompt {
   if (typeof prompt === "string") return prompt;
-  return (async function* () {
+  const content: SDKUserMessage["message"]["content"] = prompt.map((block) => {
+    if (block.type === "text") return block;
+    const mediaType = block.source.media_type;
+    if (mediaType !== "image/jpeg" && mediaType !== "image/png" && mediaType !== "image/gif" && mediaType !== "image/webp") {
+      throw new Error(`Unsupported Claude image media type: ${mediaType}`);
+    }
+    return { ...block, source: { ...block.source, media_type: mediaType } };
+  });
+  return (async function* (): AsyncGenerator<SDKUserMessage> {
     yield {
       type: "user" as const,
       session_id: "",
-      message: { role: "user" as const, content: prompt },
+      message: { role: "user" as const, content },
       parent_tool_use_id: null,
     };
   })();

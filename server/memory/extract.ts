@@ -7,7 +7,7 @@ import { EMPTY_USAGE, type UsageTotals } from "../usage.js";
 import { SEGMENT_DEFAULTS, makeMemoryId, type MemorySegment } from "./types.js";
 import { buildPromptWithImages, fetchStoredBytes } from "../images/content-blocks.js";
 
-const EXTRACTION_PROMPT = `You are a memory-extraction subagent.
+export const EXTRACTION_PROMPT = `You are a memory-extraction subagent.
 
 Given a user message + assistant reply (and, sometimes, an image the
 user sent), extract any DURABLE facts worth remembering.

@@ -57,3 +57,48 @@ they are explicit dated snapshots. SDK-reported Claude costs remain unchanged.
 
 Sources: [API pricing](https://developers.openai.com/api/docs/pricing),
 [Codex subscription pricing](https://learn.chatgpt.com/docs/pricing).
+
+## Context optimizations — October 31, 2026
+
+Boop now supplies an application-specific Codex base prompt instead of the
+coding-agent default, uses a shorter dispatcher policy, and only includes
+Apple/browser worker guidance for the selected integrations. Memory, citations,
+source privacy, images, recurring reminders, timezone confirmation, and draft
+approval policies remain. The runtime's sandbox and tool allowlists are unchanged.
+The underlying model and low reasoning setting are unchanged.
+
+The dispatcher receives the saved, validated user timezone/current local time
+as application context. It need not run a model/tool round trip just to obtain
+the clock. An unset timezone remains null, rather than the server's timezone.
+Proactive notices have a dedicated short prompt. Only an exact whitelist of
+social filler skips the backup memory extractor; substantive text, corrections,
+and images still use it. Tool schemas and conversation history are retained.
+
+Live fixture checks on Oracle, with all application effects replaced by in-memory
+handlers, compared the existing deployment with the optimized candidate:
+
+| Fixture | Previous dispatcher input | Optimized dispatcher input |
+| --- | ---: | ---: |
+| Five personal facts in a paragraph | 44,770 | 18,302 |
+| Recall location and calendar preference | 29,653 | 18,166 |
+
+The paragraph test retained all five facts with write_memory; the backup
+extractor independently retained all five. Recurring scheduling, unknown-zone
+clarification, listing/approving the exact draft ID, and staging an unapproved
+action also passed. Draft listings now return named JSON fields so the model
+does not confuse a draft's kind with its ID. These are representative smoke
+checks, not a guarantee that every future model response is identical.
+
+The optimized standalone extractor used 5,923 input tokens for the test paragraph.
+There is still a several-thousand-token Codex harness floor, and multi-step work
+can still exceed 26K cumulative tokens. These changes do not impose context or
+output truncation, reduce reasoning, disable extraction for personal paragraphs,
+or bypass required approvals to force a token target.
+
+The live check is opt-in and consumes Codex allowance:
+
+    node --import tsx scripts/check-codex-behavior.ts
+
+It uses synthetic information and fixture handlers, not real account actions.
+Use `--case personal-paragraph` to focus a check. A previous checkout with the
+original inline dispatcher prompt can be compared with `--baseline-root /path`.

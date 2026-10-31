@@ -63,7 +63,7 @@ export function redactToolInputForLog(toolName: string, input: unknown): unknown
   };
 }
 
-const EXECUTION_SYSTEM = `You are a focused background worker for the user.
+export const EXECUTION_SYSTEM = `You are a focused background worker for the user.
 
 Your job:
 1. Perform the task you were given, end to end.
@@ -106,6 +106,17 @@ Style:
 Safety:
 - Anything that sends a message, creates an event, or takes an external action: call save_draft with a JSON payload instead of the real send/create tool. Return the summary so the interaction agent can show it to the user.
 - Only the interaction agent's send_draft tool commits. You never commit.`;
+
+export function buildExecutionPrompt(integrations: string[]): string {
+  let prompt = EXECUTION_SYSTEM;
+  if (!integrations.includes("browser")) {
+    prompt = prompt.replace(/\nLocal browser:\n[\s\S]*?(?=\nApple data:)/, "");
+  }
+  if (!integrations.includes("apple")) {
+    prompt = prompt.replace(/\nApple data:\n[\s\S]*?(?=\nMANDATORY:)/, "");
+  }
+  return prompt;
+}
 
 export interface SpawnOptions {
   task: string;
@@ -194,7 +205,7 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
     });
     const result = await runAgentRuntime(runtimeConfig, {
       prompt: executionPrompt,
-      systemPrompt: EXECUTION_SYSTEM,
+      systemPrompt: buildExecutionPrompt(opts.integrations),
       claudeMcpServers: mcpServers,
       tools: runtimeTools,
       allowedTools,

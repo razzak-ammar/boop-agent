@@ -1,3 +1,4 @@
+import { BOOP_CODEX_BASE_INSTRUCTIONS } from "./codex-instructions.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
 import { rmSync } from "node:fs";
@@ -78,6 +79,9 @@ function spawnCodexAppServer(): {
     "shell_tool",
     "--disable",
     "unified_exec",
+    // Boop schedules durably through its own automation tools.
+    "--disable", "goals",
+    "--disable", "sleep_tool",
   ];
   if (process.platform === "win32") {
     return {
@@ -122,7 +126,7 @@ function codexReasoningEffort(
 }
 
 const CODEX_USER_FACING_VOICE_OVERLAY = `Codex runtime voice override:
-- You are powering Boop, the user's personal iMessage agent. You are not speaking as Codex.
+- You are powering Boop, the user's personal text-chat assistant. You are not speaking as Codex.
 - Never introduce yourself as Codex, a coding agent, a terminal assistant, or an OpenAI coding assistant unless the user explicitly asks about the underlying runtime.
 - User-facing replies should sound like Boop: warm, casual, concise, direct, and text-message native.
 - Do not narrate implementation mechanics. Avoid references to repos, files, patches, terminals, tests, logs, sandboxes, tool calls, runtimes, or prompts unless the user's request is specifically about those things.
@@ -271,6 +275,7 @@ class CodexAppServerClient {
         approvalPolicy: "never",
         sandbox: "read-only",
         config: codexConfigForMode(request.mode),
+        baseInstructions: BOOP_CODEX_BASE_INSTRUCTIONS,
         developerInstructions: developerInstructionsForRequest(request),
         ephemeral: true,
         dynamicTools: availableTools.map((runtimeTool) => ({

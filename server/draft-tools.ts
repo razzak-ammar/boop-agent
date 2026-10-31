@@ -69,8 +69,7 @@ export function createDraftDecisionTools(
         if (drafts.length === 0) {
           return runtimeText("No pending drafts.");
         }
-        const body = drafts.map((d) => `• [${d.draftId}] (${d.kind}) ${d.summary}`).join("\n");
-        return runtimeText(body);
+        return runtimeText(JSON.stringify({ drafts: drafts.map(({ draftId, kind, summary }) => ({ draftId, kind, summary })) }));
       },
     ),
 
@@ -78,7 +77,7 @@ export function createDraftDecisionTools(
       "boop-draft-decisions",
       "send_draft",
       "Approve and execute a draft. Spawns an execution agent to actually perform the action based on the stored payload.",
-      { draftId: z.string(), integrations: z.array(z.string()) },
+      { draftId: z.string().describe("Exact draftId returned by list_drafts; never the kind field."), integrations: z.array(z.string()) },
       async (args) => {
         const draft = await convex.query(api.drafts.get, { draftId: args.draftId });
         if (!draft || draft.status !== "pending") {

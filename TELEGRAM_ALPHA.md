@@ -61,6 +61,9 @@ allowance. No account-wide Codex settings are changed by this fork.
 
 ## Oracle deployment
 
+See [ORACLE_SERVER.md](./ORACLE_SERVER.md) for persistent user services,
+the sandbox repair, SSH dashboard forwarding, and Google Calendar setup.
+
 Deploy this checkout separately with its own `.env.local`, hosted Convex
 production deployment, and Codex login. Run `npm start` under a service manager.
 Only run **one server per bot token**: don't run the Mac poller while Oracle is

@@ -205,7 +205,7 @@ async function main() {
   }));
 
   const port = Number(process.env.PORT ?? 3456);
-  server.listen(port, () => {
+  server.listen(port, process.env.BOOP_HOST || "127.0.0.1", () => {
     console.log(`boop-agent server listening on :${port}`);
     console.log(`  health      GET  http://localhost:${port}/health`);
     console.log(`  chat        POST http://localhost:${port}/chat`);

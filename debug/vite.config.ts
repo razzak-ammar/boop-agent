@@ -46,10 +46,12 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
     ],
     server: {
+      host: "127.0.0.1",
       port: 5173,
+      strictPort: true,
       proxy: {
         "/api": {
-          target: `http://localhost:${port}`,
+          target: `http://127.0.0.1:${port}`,
           rewrite: (p) => p.replace(/^\/api/, ""),
           configure: (proxy) => {
             proxy.on("error", () => {
@@ -58,7 +60,7 @@ export default defineConfig(({ mode }) => {
           },
         },
         "/ws": {
-          target: `ws://localhost:${port}`,
+          target: `ws://127.0.0.1:${port}`,
           ws: true,
           configure: (proxy) => {
             proxy.on("error", () => {

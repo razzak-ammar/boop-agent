@@ -1,6 +1,6 @@
 import { parseRememberCommand, storeRawNote } from "./memory/note-intake.js";
 import { describeUserNow } from "./timezone-config.js";
-import { buildInteractionPrompt, PROACTIVE_SYSTEM } from "./interaction-prompt.js";
+import { BOOP_DELEGATE_TOOL, buildInteractionPrompt, PROACTIVE_SYSTEM } from "./interaction-prompt.js";
 import { shouldExtractMemory } from "./memory/extraction-policy.js";
 import { formatRecordCost } from "./token-pricing.js";
 import { z } from "zod";
@@ -274,7 +274,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     defineRuntimeTool(
       "boop-ack",
       "send_ack",
-      `Send a short acknowledgment message to the user IMMEDIATELY, before a slow operation. Use this BEFORE spawn_agent so the user knows you heard them and are working on it. Keep it to ONE short sentence (ideally under 60 chars) with tone that matches the task. Examples: "On it — one sec 🔍", "Looking into it…", "Drafting now, hold tight.", "Let me check your calendar."`,
+      `Send a short acknowledgment message to the user IMMEDIATELY, before a slow operation. Use this BEFORE ${BOOP_DELEGATE_TOOL} so the user knows you heard them and are working on it. Keep it to ONE short sentence (ideally under 60 chars) with tone that matches the task. Examples: "On it — one sec 🔍", "Looking into it…", "Drafting now, hold tight.", "Let me check your calendar."`,
       {
         message: z.string().describe("1 short sentence ack. No markdown. Emojis OK."),
       },
@@ -287,7 +287,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     ),
     defineRuntimeTool(
       "boop-spawn",
-      "spawn_agent",
+      BOOP_DELEGATE_TOOL,
       "Spawn a focused sub-agent to do real work using external tools. Returns the agent's final answer. Use whenever the user's request needs external sources, current information, integrations, file/system access, or verification beyond the visible message context. If the current user message includes images and the sub-agent's task depends on them, pass the relevant storage IDs in imageRefs. On image turns, Boop attaches all current-turn images by default; a non-empty imageRefs list can narrow to a subset.",
       {
         task: z
@@ -357,7 +357,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           : [
               "mcp__boop-memory__write_memory",
               "mcp__boop-memory__recall",
-              "mcp__boop-spawn__spawn_agent",
+              `mcp__boop-spawn__${BOOP_DELEGATE_TOOL}`,
               "mcp__boop-automations__create_automation",
               "mcp__boop-automations__create_reminder",
               "mcp__boop-automations__reschedule_automation",

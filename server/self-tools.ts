@@ -184,6 +184,8 @@ Use when the user says "use opus", "switch to sonnet", "use Codex mini", "make i
           account: c.accountLabel ?? c.accountEmail ?? c.alias ?? "(unknown)",
           connectionId: c.connectionId,
         }));
+        const native = (await listEnabledIntegrations()).filter(mod => mod.name === "timetracker");
+        if (native.length) return runtimeText(JSON.stringify({ integrations: summary, native: native.map(mod => ({ slug: mod.name, description: mod.description })) }, null, 2));
         return runtimeText(
           summary.length === 0
             ? "No integrations are currently connected. The user can connect new ones from the Connections panel in the debug UI."

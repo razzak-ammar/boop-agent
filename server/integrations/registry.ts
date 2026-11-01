@@ -50,6 +50,8 @@ export async function loadIntegrations(): Promise<void> {
     const { registerAppleIntegration } = await import("./apple-loader.js");
     registerAppleIntegration();
   }
+  const { registerTimeTrackerIntegration } = await import("./time-tracker-loader.js");
+  registerTimeTrackerIntegration();
   const loaded = [...registry.keys()];
   const enabled = (await listEnabledIntegrations()).map((i) => i.name);
   console.log(

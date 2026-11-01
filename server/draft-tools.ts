@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { executeTimeTrackerDraft } from "./time-tracker/tools.js";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { spawnExecutionAgent } from "./execution-agent.js";
@@ -82,6 +83,16 @@ export function createDraftDecisionTools(
         const draft = await convex.query(api.drafts.get, { draftId: args.draftId });
         if (!draft || draft.status !== "pending") {
           return runtimeText(`Draft ${args.draftId} not found or already decided.`, false);
+        }
+        if (draft.kind === "timetracker.action") {
+          if (draft.conversationId !== conversationId) return runtimeText("Draft belongs to another conversation.", false);
+          try {
+            const result = await executeTimeTrackerDraft(draft.payload);
+            await convex.mutation(api.drafts.setStatus, { draftId: args.draftId, status: "sent" });
+            return runtimeText(`TimeTracker draft ${args.draftId} executed.\n${JSON.stringify(result)}`);
+          } catch (error) {
+            return runtimeText(error instanceof Error ? error.message : "TimeTracker action failed. Draft remains pending.", false);
+          }
         }
         await convex.mutation(api.drafts.setStatus, {
           draftId: args.draftId,

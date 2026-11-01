@@ -1,0 +1,996 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "TimeTracker Agent API",
+    "version": "1.0.0",
+    "description": "Authenticated project and time-entry management. Events map to Firestore timeEntries. See AGENT_API.md for authentication, pagination, retries, deployment and examples. Lists scan bounded pages then apply filters; continue through empty pages until nextCursor is null. No project delete, restore, or permanent delete HTTP operations."
+  },
+  "servers": [
+    {
+      "url": "https://us-central1-time-tracker-3b6df.cloudfunctions.net/agentApi",
+      "description": "Available after deploying functions:agentApi; override for other projects."
+    }
+  ],
+  "security": [
+    {
+      "firebaseIdToken": []
+    }
+  ],
+  "paths": {
+    "/projects": {
+      "get": {
+        "operationId": "listProjects",
+        "summary": "List your projects",
+        "tags": [
+          "projects"
+        ],
+        "responses": {
+          "200": {
+            "description": "A page ordered by document ID ascending; may be empty with a non-null nextCursor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 100
+            },
+            "description": "Maximum documents scanned per page before filtering."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Previous nextCursor; keep all filters unchanged."
+          },
+          {
+            "name": "includeDeleted",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Include recoverable trash."
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createProject",
+        "summary": "Create a project",
+        "tags": [
+          "projects"
+        ],
+        "responses": {
+          "201": {
+            "description": "Created. Reuse client ID on retries; GET after an ambiguous result/409 to verify.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "description": "Plain JSON object, maximum 32 KiB. Unknown fields are rejected.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getProject",
+        "summary": "Read your project including trash metadata",
+        "tags": [
+          "projects"
+        ],
+        "responses": {
+          "200": {
+            "description": "Resource. Trash metadata may be present.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateProject",
+        "summary": "Edit supplied fields of your project",
+        "tags": [
+          "projects"
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated. Last-writer-wins; no ETag preconditions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "description": "Plain JSON object, maximum 32 KiB. Unknown fields are rejected.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectPatch"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events": {
+      "get": {
+        "operationId": "listEvents",
+        "summary": "List your events",
+        "tags": [
+          "events"
+        ],
+        "responses": {
+          "200": {
+            "description": "A page ordered by document ID ascending; may be empty with a non-null nextCursor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 100
+            },
+            "description": "Maximum documents scanned per page before filtering."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Previous nextCursor; keep all filters unchanged."
+          },
+          {
+            "name": "includeDeleted",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Include recoverable trash."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Filter by project ID."
+          },
+          {
+            "name": "isActive",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Filter by timer state."
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC."
+            },
+            "description": "Inclusive startTime bound."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC."
+            },
+            "description": "Exclusive startTime bound; must be after from."
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createEvent",
+        "summary": "Create a event",
+        "tags": [
+          "events"
+        ],
+        "responses": {
+          "201": {
+            "description": "Created. Reuse client ID on retries; GET after an ambiguous result/409 to verify.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "description": "Plain JSON object, maximum 32 KiB. Unknown fields are rejected.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventCreate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getEvent",
+        "summary": "Read your event including trash metadata",
+        "tags": [
+          "events"
+        ],
+        "responses": {
+          "200": {
+            "description": "Resource. Trash metadata may be present.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateEvent",
+        "summary": "Edit supplied fields of your event",
+        "tags": [
+          "events"
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated. Last-writer-wins; no ETag preconditions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "description": "Plain JSON object, maximum 32 KiB. Unknown fields are rejected.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventPatch"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteEvent",
+        "summary": "Move an event to Recently Deleted for 30 days",
+        "tags": [
+          "events"
+        ],
+        "responses": {
+          "204": {
+            "description": "Soft-deleted, or already in trash. No response body."
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "firebaseIdToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Firebase ID token",
+        "description": "Firebase Auth ID token from the account whose data you manage. Refresh with Firebase Auth REST API. Server checks revocation."
+      }
+    },
+    "schemas": {
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC."
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC."
+          },
+          "purgeAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "pattern": "\\S"
+          },
+          "color": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "isPinned": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "color"
+        ]
+      },
+      "ProjectCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Optional stable client-selected ID for safe retries. Omit for a random ID."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "pattern": "\\S"
+          },
+          "color": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "isPinned": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "color"
+        ]
+      },
+      "ProjectPatch": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "pattern": "\\S"
+          },
+          "color": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "isPinned": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ProjectResult": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Project"
+          }
+        }
+      },
+      "ProjectList": {
+        "type": "object",
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Project"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Last scanned ID. Continue even if data is empty; stop only at null."
+          }
+        }
+      },
+      "Event": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC."
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC."
+          },
+          "purgeAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC."
+          },
+          "projectId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "startTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC."
+          },
+          "endTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC.",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "startTime"
+        ]
+      },
+      "EventCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Optional stable client-selected ID for safe retries. Omit for a random ID."
+          },
+          "projectId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "startTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC."
+          },
+          "endTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC.",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "projectId",
+          "startTime"
+        ],
+        "description": "isActive defaults to false. Completed entries require endTime > startTime. Active entries require null/omitted endTime. projectId must refer to your available project."
+      },
+      "EventPatch": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "startTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC."
+          },
+          "endTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 with seconds, timezone, and optional 1\u20133 fractional digits. Responses use UTC.",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        },
+        "description": "Merged event must have endTime > startTime if completed, null/omitted endTime if active. Stop a timer by setting isActive=false and endTime together. Clear description with an empty string."
+      },
+      "EventResult": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Event"
+          }
+        }
+      },
+      "EventList": {
+        "type": "object",
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Last scanned ID. Continue even if data is empty; stop only at null."
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "Error400": {
+        "description": "Invalid body/query.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Error401": {
+        "description": "Missing, expired, invalid, disabled, or revoked Firebase session.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Error404": {
+        "description": "Missing resource/route or resource owned by another user.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Error405": {
+        "description": "Method not allowed; inspect Allow header.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Error409": {
+        "description": "ID already exists or resource/project is in trash.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Error413": {
+        "description": "JSON body exceeds 32 KiB.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Error415": {
+        "description": "Use Content-Type: application/json.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Error500": {
+        "description": "Internal failure; retry with backoff and the same resource ID.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

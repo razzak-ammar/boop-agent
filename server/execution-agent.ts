@@ -115,6 +115,13 @@ export function buildExecutionPrompt(integrations: string[]): string {
   if (!integrations.includes("apple")) {
     prompt = prompt.replace(/\nApple data:\n[\s\S]*?(?=\nMANDATORY:)/, "");
   }
+  if (integrations.includes("timetracker")) {
+    prompt += `
+TimeTracker:
+- Events are personal time entries, not calendar events. Discover project IDs before logging work. Use the user's configured IANA timezone and per-instant offsets; ask if local times are ambiguous. Descriptions must reflect supplied facts.
+- TimeTracker write tools automatically stage drafts. Call them directly to prepare a draft, instead of save_draft. They NEVER commit; send_draft executes approved TimeTracker drafts directly. Do not create duplicate drafts.
+- from/to filters select startTime, not interval overlap. Read current entries before editing. Never report a staged draft as a completed write.`;
+  }
   return prompt;
 }
 

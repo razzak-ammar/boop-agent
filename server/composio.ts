@@ -1,3 +1,4 @@
+import { composioPermissionHint } from "./composio-errors.js";
 import { Composio } from "@composio/core";
 import { Composio as ComposioApiClient } from "@composio/client";
 import { ClaudeAgentSDKProvider } from "@composio/claude-agent-sdk";
@@ -670,6 +671,8 @@ export function buildComposioIntegrationModule(slug: string): IntegrationModule 
                 ...(connectedAccountId ? { connectedAccountId } : {}),
                 dangerouslySkipVersionCheck: true,
               });
+              const permissionHint = composioPermissionHint(slug, result);
+              if (permissionHint) return runtimeText(permissionHint, false);
               return runtimeText(
                 JSON.stringify(result, null, 2),
                 Boolean((result as { successful?: boolean })?.successful ?? true),

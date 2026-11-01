@@ -71,6 +71,30 @@ export class TelegramClient {
     return data.result;
   }
 
+  startTyping(chatId: number): () => void {
+    if (chatId !== this.config.ownerId) throw new Error("Telegram recipient is not the configured owner.");
+    const controller = new AbortController();
+    let inFlight = false;
+    const pulse = async () => {
+      if (controller.signal.aborted || inFlight) return;
+      inFlight = true;
+      try {
+        await this.call("sendChatAction", { chat_id: chatId, action: "typing" },
+          AbortSignal.any([controller.signal, AbortSignal.timeout(3500)]));
+      } catch {
+        // Cosmetic and best-effort: never delay or fail a real reply, or log
+        // network errors whose URLs might expose the bot token.
+      } finally {
+        inFlight = false;
+      }
+    };
+    void pulse();
+    // Telegram expires chat actions after at most five seconds.
+    const timer = setInterval(() => { void pulse(); }, 4000);
+    timer.unref();
+    return () => { clearInterval(timer); controller.abort(); };
+  }
+
   async send(chatId: number, text: string): Promise<void> {
     if (chatId !== this.config.ownerId) throw new Error("Telegram recipient is not the configured owner.");
     for (const chunk of telegramChunks(text)) {
@@ -106,15 +130,18 @@ export async function handleTelegramUpdate(
     await client.send(ownerId, "Boop is connected. Send me notes, questions, or recurring reminders. Tell me your timezone before scheduling.");
     return;
   }
+  const stopTyping = client.startTyping(ownerId);
   let reply: string;
   try {
     reply = await handleMessage({ conversationId: `telegram:${ownerId}`, content: message.text });
   } catch {
     // A failed turn may already have performed a tool action. Don't replay it
     // automatically, and don't reveal internal errors to the chat.
-    await client.send(ownerId, "I couldn't finish that request. Some actions may have completed; check before retrying.");
+    reply = "I couldn't finish that request. Some actions may have completed; check before retrying.";
     console.error("[telegram] agent turn failed");
-    return;
+  } finally {
+    // Abort any outstanding pulse before delivering the final/error message.
+    stopTyping();
   }
   if (reply.trim()) await client.send(ownerId, reply);
 }

@@ -1,14 +1,15 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleTelegramUpdate, sendTelegram, startTelegram, TelegramClient, telegramChunks, telegramConfig, type TelegramUpdate } from "../server/telegram.js";
 
 const config = { token: "123:test-token", ownerId: 42, offsetPath: "/unused" };
 const update: TelegramUpdate = { update_id: 10, message: { from: { id: 42 }, chat: { id: 42, type: "private" }, text: "Remember my project" } };
 const ok = (result: unknown) => new Response(JSON.stringify({ ok: true, result }));
 
-afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+beforeEach(() => { vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => ok(true))); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("private Telegram chat", () => {
   it("stays disabled without config and rejects partial or invalid config", () => {
@@ -21,6 +22,7 @@ describe("private Telegram chat", () => {
   it("ignores strangers, groups, bots, and edited updates before invoking the agent", async () => {
     const client = new TelegramClient(config);
     const send = vi.spyOn(client, "send").mockResolvedValue();
+    const typing = vi.spyOn(client, "startTyping");
     const handler = vi.fn();
     for (const message of [
       { ...update.message!, from: { id: 7 } },
@@ -31,6 +33,7 @@ describe("private Telegram chat", () => {
     ]) await handleTelegramUpdate({ update_id: 1, message }, client, handler);
     expect(handler).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
+    expect(typing).not.toHaveBeenCalled();
   });
 
   it("routes owner text to the stable conversation and delivers the final reply", async () => {
@@ -108,6 +111,7 @@ describe("private Telegram chat", () => {
     const offsets: number[] = [];
     const fetcher = vi.fn(async (url: string, options: RequestInit) => {
       if (url.endsWith("getWebhookInfo")) return ok({ url: "" });
+      if (url.endsWith("sendChatAction")) return ok(true);
       if (url.endsWith("sendMessage")) {
         if (deliveryFails) throw new Error("network failure");
         return ok({});
@@ -130,5 +134,57 @@ describe("private Telegram chat", () => {
       runner!.stop(); await runner!.done;
       expect(handler).toHaveBeenCalledTimes(1);
     } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+});
+
+
+describe("Telegram typing indicator", () => {
+  it("starts immediately, refreshes during a slow turn, and stops before the reply", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn().mockImplementation(async () => ok(true));
+    const client = new TelegramClient(config, fetcher);
+    const send = vi.spyOn(client, "send").mockImplementation(async () => {
+      const count = fetcher.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(8000);
+      expect(fetcher).toHaveBeenCalledTimes(count);
+    });
+    let complete!: (reply: string) => void;
+    const pending = handleTelegramUpdate(update, client, () => new Promise(resolve => { complete = resolve; }));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({chat_id:42, action:"typing"});
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    complete("Done");
+    await pending;
+    expect(send).toHaveBeenCalledWith(42,"Done");
+  });
+  it("ignores typing failures and still delivers the reply", async () => {
+    const client = new TelegramClient(config, vi.fn().mockRejectedValue(new Error("token in URL")));
+    const send = vi.spyOn(client,"send").mockResolvedValue();
+    await handleTelegramUpdate(update,client,async()=>"Done");
+    expect(send).toHaveBeenCalledWith(42,"Done");
+  });
+  it("cleans up on handler and reply-delivery failures", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console,"error").mockImplementation(()=>{});
+    const fetcher=vi.fn().mockImplementation(async () => ok(true));
+    const client=new TelegramClient(config,fetcher);
+    vi.spyOn(client,"send").mockRejectedValue(new Error("delivery failed"));
+    await expect(handleTelegramUpdate(update,client,async()=>{throw new Error("agent failed");})).rejects.toThrow("delivery failed");
+    const count=fetcher.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(12000);
+    expect(fetcher).toHaveBeenCalledTimes(count);
+  });
+  it("aborts pending pulses and refuses other recipients", () => {
+    const fetcher=vi.fn().mockImplementation((_url,options)=>new Promise((_resolve,reject)=>{
+      options.signal.addEventListener("abort",()=>reject(new Error("aborted")),{once:true});
+    }));
+    const client=new TelegramClient(config,fetcher);
+    expect(()=>client.startTyping(7)).toThrow("owner");
+    expect(fetcher).not.toHaveBeenCalled();
+    const stop=client.startTyping(42);
+    const signal=fetcher.mock.calls[0][1].signal;
+    stop();stop();
+    expect(signal.aborted).toBe(true);
   });
 });

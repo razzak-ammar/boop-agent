@@ -118,3 +118,7 @@ starting November 2,” or “every three hours.” Plain reminders send their s
 text without a model call at delivery. Ask to list, pause, delete, or reschedule
 them. Local clock times need your saved timezone. See [reminder details](docs/REMINDERS.md)
 for restart, DST, retry, and timing behavior.
+
+Boop shows Telegram's typing indicator while processing a text message, refreshing
+it during longer requests. It stops refreshing before the final/error reply.
+Typing status is best-effort and does not block replies or consume model tokens.

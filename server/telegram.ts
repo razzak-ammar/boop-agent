@@ -1,6 +1,8 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { formattedTelegramChunks } from "./telegram-format.js";
+export { telegramChunks } from "./telegram-format.js";
 
 export interface TelegramConfig {
   token: string;
@@ -29,22 +31,6 @@ export function telegramConfig(env = process.env): TelegramConfig | null {
     ownerId: Number(owner),
     offsetPath: join(resolve(env.TELEGRAM_STATE_DIR || "data/telegram"), `${token.split(":")[0]}.json`),
   };
-}
-
-// Plain text avoids Telegram Markdown parsing failures. Count UTF-16 units
-// conservatively, preserving surrogate pairs at chunk boundaries.
-export function telegramChunks(text: string): string[] {
-  const chunks: string[] = [];
-  let chunk = "";
-  for (const char of text) {
-    if (chunk.length + char.length > 4000) {
-      chunks.push(chunk);
-      chunk = "";
-    }
-    chunk += char;
-  }
-  if (chunk) chunks.push(chunk);
-  return chunks;
 }
 
 export class TelegramClient {
@@ -97,8 +83,8 @@ export class TelegramClient {
 
   async send(chatId: number, text: string): Promise<void> {
     if (chatId !== this.config.ownerId) throw new Error("Telegram recipient is not the configured owner.");
-    for (const chunk of telegramChunks(text)) {
-      await this.call("sendMessage", { chat_id: chatId, text: chunk });
+    for (const chunk of formattedTelegramChunks(text)) {
+      await this.call("sendMessage", { chat_id: chatId, text: chunk.text, ...(chunk.entities.length ? { entities: chunk.entities } : {}) });
     }
   }
 }

@@ -64,8 +64,8 @@ describe("private Telegram chat", () => {
     expect(send.mock.calls[0][1]).not.toContain("private-secret");
   });
 
-  it("splits long emoji replies losslessly and sends plain text chunks", async () => {
-    const text = "a".repeat(3999) + "🐶".repeat(3000) + "<tag>_markdown_";
+  it("splits long unformatted emoji replies losslessly", async () => {
+    const text = "a".repeat(3999) + "🐶".repeat(3000) + "<tag>literal_punctuation";
     const chunks = telegramChunks(text);
     expect(chunks.join("")).toBe(text);
     expect(chunks.every((c) => c.length <= 4000)).toBe(true);

@@ -81,8 +81,9 @@ bot tokens, or Telegram response bodies. They aren't automatically replayed:
 an action may already have happened. Check the dashboard before retrying.
 Transient polling errors retry every five seconds. Telegram rate-limit errors
 on outbound messages are logged as delivery failures; there is no durable
-delivery/retry queue yet. Messages are split into plain-text chunks, with no
-Telegram Markdown parsing.
+delivery/retry queue yet. Agent Markdown is converted to Telegram text entities for bold, italics,
+strikethrough, links, headings, and code. Long replies are split with formatting
+and emoji boundaries preserved; literal HTML is displayed as text.
 
 The alpha does not add photos, voice transcription, Google Calendar, todos,
 tracker tools, Markdown writing, daily backups, or one-time reminder scheduling.

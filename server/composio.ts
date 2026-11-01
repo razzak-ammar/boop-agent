@@ -511,7 +511,7 @@ export async function authorizeToolkit(
 
   // 1. Find or create an auth config for the toolkit. session.authorize doesn't
   //    auto-discover or auto-create — we have to pass an authConfigId explicitly
-  //    to connectedAccounts.initiate. That's why a manually-added BYO config in
+  //    to connectedAccounts.link. That's why a manually-added BYO config in
   //    the dashboard would still trip "require auth configs but none exist" on
   //    the previous session.authorize-based code path.
   let authConfigId: string;
@@ -537,12 +537,14 @@ export async function authorizeToolkit(
     }
   }
 
-  // 2. Initiate the connection. allowMultiple if there's already an active connection
+  // 2. Use the hosted consent link. The legacy initiate endpoint is retired
+  //    for Composio-managed OAuth. Preserve multi-account, alias and callback
+  //    behavior. allowMultiple if there's already an active connection
   //    so we add another account instead of replacing.
   const existing = (await listConnectedToolkits()).filter(
     (c) => c.slug === slug && c.status === "ACTIVE",
   );
-  const conn = await composio.connectedAccounts.initiate(boopUserId(), authConfigId, {
+  const conn = await composio.connectedAccounts.link(boopUserId(), authConfigId, {
     ...(existing.length > 0 ? { allowMultiple: true } : {}),
     ...(opts?.callbackUrl ? { callbackUrl: opts.callbackUrl } : {}),
     ...(opts?.alias ? { alias: opts.alias } : {}),

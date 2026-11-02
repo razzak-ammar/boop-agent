@@ -67,10 +67,10 @@ describe("TimeTracker tools and drafts", () => {
   it("stages stopping a timer with both fields and performs no HTTP write", async () => {
     const c = fake();
     const tool = createTimeTrackerTools("chat", () => c as unknown as TimeTrackerClient, async () => "America/New_York").find(t => t.name === "stop_timer")!;
-    const result = await tool.handle({ id: "entry", endTime: "2026-11-01T21:00:00Z" });
+    const result = await tool.handle({ id: "entry", end: { time: "16:00" } });
     expect(result.success).toBe(true);
     const draft = vi.mocked(convex.mutation).mock.calls[0][1] as any;
-    expect(JSON.parse(draft.payload)).toMatchObject({ operation: "update_event", body: { isActive: false, endTime: "2026-11-01T21:00:00Z" }, expectedUpdatedAt: "version-1" });
+    expect(JSON.parse(draft.payload)).toMatchObject({ operation: "update_event", body: { isActive: false, endTime: "2026-11-01T21:00:00.000Z" }, expectedUpdatedAt: "version-1" });
     expect(c.request).not.toHaveBeenCalled();
     expect(c.create).not.toHaveBeenCalled();
   });
@@ -86,11 +86,11 @@ describe("TimeTracker tools and drafts", () => {
   it("persists a create ID in the pending draft and blocks a second active timer", async () => {
     const c = fake();
     const tool = createTimeTrackerTools("chat", () => c as unknown as TimeTrackerClient, async () => "America/New_York").find(t => t.name === "start_timer")!;
-    expect((await tool.handle({ projectId: "project", startTime: record.startTime })).success).toBe(true);
+    expect((await tool.handle({ projectId: "project", start: { date: "2026-11-01", time: "14:00" } })).success).toBe(true);
     const draft = vi.mocked(convex.mutation).mock.calls[0][1] as any;
     expect(JSON.parse(draft.payload).body.id).toMatch(/^[a-f0-9-]{36}$/);
     c.list.mockResolvedValueOnce([record] as never[]);
-    expect((await tool.handle({ projectId: "project", startTime: record.startTime })).success).toBe(false);
+    expect((await tool.handle({ projectId: "project", start: { date: "2026-11-01", time: "14:00" } })).success).toBe(false);
     expect(convex.mutation).toHaveBeenCalledTimes(1);
   });
   it("requires a conversation for write staging", async () => {
@@ -127,9 +127,9 @@ describe("TimeTracker tools and drafts", () => {
 describe("direct TimeTracker actions", () => {
   it("saves a requested entry immediately with a durable receipt, without a confirmation turn", async () => {
     const record = { id: "project", updatedAt: "v1" };
-    const c = { get: vi.fn().mockResolvedValue(record), create: vi.fn().mockImplementation(async (_r, body) => ({ data: body })) } as unknown as TimeTrackerClient;
+    const c = { get: vi.fn().mockResolvedValue(record), list: vi.fn().mockResolvedValue([]), create: vi.fn().mockImplementation(async (_r, body) => ({ data: body })) } as unknown as TimeTrackerClient;
     const tool = createTimeTrackerTools("chat", () => c, async () => "America/New_York", "direct").find(t => t.name === "create_event")!;
-    const result = await tool.handle({ projectId: "project", startTime: "2026-11-01T15:00:00-05:00", endTime: "2026-11-01T16:00:00-05:00", description: "Research" });
+    const result = await tool.handle({ projectId: "project", start: { date: "2026-11-01", time: "15:00" }, end: { time: "16:00" }, description: "Research" });
     expect(result.success).toBe(true);
     expect(JSON.parse(result.text)).toMatchObject({ status: "saved", result: { data: { description: "Research" } } });
     expect(c.create).toHaveBeenCalledTimes(1);
@@ -138,9 +138,9 @@ describe("direct TimeTracker actions", () => {
     expect(JSON.parse(receipt.payload).body.id).toBe(vi.mocked(c.create).mock.calls[0][1].id);
   });
   it("still honors an explicit draft-only request without saving", async () => {
-    const c = { get: vi.fn().mockResolvedValue({ id: "project", updatedAt: "v1" }), create: vi.fn() } as unknown as TimeTrackerClient;
+    const c = { get: vi.fn().mockResolvedValue({ id: "project", updatedAt: "v1" }), list: vi.fn().mockResolvedValue([]), create: vi.fn() } as unknown as TimeTrackerClient;
     const tool = createTimeTrackerTools("chat", () => c, async () => "America/New_York", "direct").find(t => t.name === "create_event")!;
-    const result = await tool.handle({ projectId: "project", startTime: "2026-11-01T15:00:00-05:00", endTime: "2026-11-01T16:00:00-05:00", draftOnly: true });
+    const result = await tool.handle({ projectId: "project", start: { date: "2026-11-01", time: "15:00" }, end: { time: "16:00" }, draftOnly: true });
     expect(JSON.parse(result.text).status).toBe("pending");
     expect(c.create).not.toHaveBeenCalled();
   });

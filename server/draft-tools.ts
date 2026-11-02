@@ -71,7 +71,7 @@ export function createDraftDecisionTools(
         if (drafts.length === 0) {
           return runtimeText("No pending drafts.");
         }
-        return runtimeText(JSON.stringify({ drafts: drafts.map(({ draftId, kind, summary }) => ({ draftId, kind, summary })) }));
+        return runtimeText(JSON.stringify({ drafts: drafts.map(({ draftId, kind, summary, createdAt }) => ({ draftId, kind, summary, prepared: createdAt ? new Date(createdAt).toISOString() : undefined })) }));
       },
     ),
 
@@ -80,7 +80,7 @@ export function createDraftDecisionTools(
       if (!draft || draft.conversationId !== conversationId || draft.status !== "pending") return runtimeText("Pending draft not found in this conversation.", false);
       return runtimeText(JSON.stringify({ draftId, kind: draft.kind, summary: draft.summary, payload: draft.payload }));
     }),
-    defineRuntimeTool("boop-draft-decisions", "update_draft", "Revise a pending TimeTracker draft in place from the user's correction. Preserves its project, dates, other fields and stable entry ID. Returns its replacement draft ID; this does not publish it.", { draftId: z.string(), changes: z.record(z.string(), z.unknown()) }, async ({ draftId, changes }) => {
+    defineRuntimeTool("boop-draft-decisions", "update_draft", "Revise a pending TimeTracker draft in place from the user's correction. Preserves its project, dates, other fields and stable entry ID. For times, pass start {date, time} and/or end {time, optional date} as local values; never UTC timestamps. Returns its replacement draft ID; this does not publish it.", { draftId: z.string(), changes: z.record(z.string(), z.unknown()) }, async ({ draftId, changes }) => {
       const draft = await convex.query(api.drafts.get, { draftId });
       if (!draft || draft.conversationId !== conversationId || draft.status !== "pending" || draft.kind !== "timetracker.action") return runtimeText("Pending TimeTracker draft not found in this conversation.", false);
       try {

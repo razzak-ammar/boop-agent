@@ -52,8 +52,13 @@ These are account session credentials, not a separately scoped agent API token.
 ## Tools and writes
 
 Tools: `resolve_local_time`, `check_connection`, `list_projects`, `get_project`, `create_project`,
-`update_project`, `list_events`, `get_event`, `create_event`, `update_event`,
+`update_project`, `list_events`, `summarize_time`, `get_event`, `create_event`, `update_event`,
 `delete_event`, `start_timer`, and `stop_timer`.
+
+TimeTracker runs only on the main conversation agent. Delegating it to a worker is
+refused, because workers cannot see the conversation's pending operations. Pending
+(unsaved) operations from the last 7 days are shown to the main agent each turn, so
+one cannot silently go missing; `list_drafts` reports when each was prepared.
 
 Events are time entries, not calendar events. Write tools persist a durable
 operation receipt (including a stable UUID for creates) before sending the write.
@@ -81,12 +86,19 @@ failure, Boop reads that ID and compares intended fields, normalizing timestamps
 A collision alone is not success. If recovery cannot verify the create, the draft
 remains pending with its original ID. There is no blind POST retry with a new ID.
 
+`create_event` returns `already_saved` with the existing entry, instead of writing a
+duplicate, when the same project already has an entry within a minute of the same
+start and end. Overlapping entries are saved but returned as `overlaps` to mention.
+
 List tools traverse every page, including empty pages with a cursor, and fail
-explicitly after 1,000 pages rather than silently returning partial data. Event
-results are sorted chronologically after traversal. `from`/`to` filter startTime,
-not interval overlap; do not use those filters to calculate overlapping durations
-without accounting for entries that started earlier. Reporting aggregates remain
-owned by TimeTracker's existing asynchronous reporting worker.
+explicitly after 1,000 pages rather than silently returning partial data.
+`list_events` takes inclusive local `fromDate`/`toDate` (YYYY-MM-DD), selects entries
+by start time, defaults to the last 14 days, and returns compact rows (project name,
+local start/end labels, minutes, a 200-character description) capped at the newest
+200. `get_event` returns the full record. `summarize_time` totals minutes by project
+and by local day, splitting entries at local midnights and range edges and counting a
+running timer to now; it looks back 24 hours for entries that started before the
+range. TimeTracker's own reporting aggregates use UTC days, so they are not used.
 
 ## Validation
 
@@ -100,13 +112,16 @@ Tests use mocked HTTP/Convex boundaries, never real credentials or time entries.
 
 ## Local dates and timezones
 
-Workers receive the application's current local date, time and saved IANA
+Agents receive the application's current local date, time and saved IANA
 timezone for every run. If the timezone is unset, they must ask for it instead
-of using the server's zone. `resolve_local_time` converts an explicit `date`
-(YYYY-MM-DD) and `time` (24-hour HH:mm) using the saved timezone, returning both
-UTC and local timestamps. Use it for writes and filter boundaries instead of
-having the model calculate offsets. Repeated DST wall times require an explicit
+of using the server's zone. Write tools never take UTC timestamps: `start` is a
+local `{ date, time }` and `end` a local `{ time, date? }` (24-hour HH:mm). Without
+an end date, an end not after the start rolls to the next day, so overnight
+entries need only the end time. Boop converts each instant with the offset in effect
+then. Model-built timestamps previously stored entries hours off. `start_timer` and
+`stop_timer` default to now. Repeated DST wall times require an explicit
 `occurrence` (`earlier` or `later`); nonexistent spring-forward times fail.
+`resolve_local_time` remains for explaining a conversion.
 
 Read tools and successful write results retain UTC storage fields and add
 `localTime` with timezone, local ISO strings and human-readable labels. Event

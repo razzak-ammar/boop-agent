@@ -126,10 +126,10 @@ export function buildExecutionPrompt(integrations: string[], time?: { isExplicit
   if (integrations.includes("timetracker")) {
     prompt += `
 TimeTracker:
-- Events are personal time entries, not calendar events. Discover project IDs before logging work. Use the user's configured IANA timezone and per-instant offsets; ask if local times are ambiguous. Descriptions must reflect supplied facts.
+- Events are personal time entries, not calendar events. Discover project IDs before logging work. Descriptions must reflect supplied facts; ask if local times are ambiguous.
 - TimeTracker write tools save requested changes directly. Use draftOnly=true only for an explicit draft/preview request. An operation with status pending is not saved; use its returned ID for recovery rather than creating a duplicate.
-- Call resolve_local_time for wall-clock-to-API conversion. Present entries using localTime labels, not raw UTC fields. UTC and local timestamps can describe the same entry; compare instants, not clock strings.
-- from/to filters select startTime, not interval overlap. Read current entries before editing. Never report a staged draft as a completed write.`;
+- Write and list tools take local dates (YYYY-MM-DD) and 24-hour times in the user's saved timezone and convert them; never construct UTC timestamps. Present entries using their local labels.
+- list_events selects entries by start date and defaults to the last 14 days; use summarize_time for totals. Read current entries before editing. already_saved means nothing new was written. Never report a staged draft as a completed write.`;
   }
   if (integrations.includes("googlecalendar")) {
     prompt += `

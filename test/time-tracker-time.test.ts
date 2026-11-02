@@ -37,7 +37,7 @@ describe("TimeTracker local time handling", () => {
     const prompt = buildExecutionPrompt(["timetracker"], { timezone: "America/New_York", isExplicit: true, now: "Sunday, November 1, 2026 at 7:16 PM EST", isoDate: "2026-11-01" });
     expect(prompt).toContain('"currentLocalDate":"2026-11-01"');
     expect(prompt).toContain('"userTimezone":"America/New_York"');
-    expect(prompt).toContain("resolve_local_time");
+    expect(prompt).toContain("never construct UTC timestamps");
     const unset = buildExecutionPrompt([], { timezone: "UTC", isExplicit: false, now: "server time", isoDate: "2026-11-02" });
     expect(unset).toContain('"userTimezone":null');
     expect(unset).not.toContain("server time");
@@ -46,16 +46,17 @@ describe("TimeTracker local time handling", () => {
   it("returns local labels with read results and shows local dates in draft previews", async () => {
     vi.clearAllMocks();
     const event = { id: "entry", projectId: "project", startTime: "2026-11-01T17:00:00Z", endTime: "2026-11-01T18:00:00Z", isActive: false, updatedAt: "v1" };
-    const c = { list: vi.fn().mockResolvedValue([event]), get: vi.fn().mockResolvedValue(event) } as unknown as TimeTrackerClient;
+    const c = { list: vi.fn().mockImplementation(async (resource: string) => resource === "projects" ? [{ id: "project", name: "Research" }] : [event]), get: vi.fn().mockResolvedValue(event) } as unknown as TimeTrackerClient;
     const tools = createTimeTrackerTools("chat", () => c, async () => "America/New_York");
-    const result = await tools.find(t => t.name === "list_events")!.handle({});
-    expect(JSON.parse(result.text)[0].localTime.start.iso).toBe("2026-11-01T12:00:00-05:00");
-    const draftResult = await tools.find(t => t.name === "create_event")!.handle({ projectId: "project", startTime: event.startTime, endTime: event.endTime });
+    const result = await tools.find(t => t.name === "list_events")!.handle({ fromDate: "2026-11-01", toDate: "2026-11-01" });
+    expect(JSON.parse(result.text).entries[0]).toMatchObject({ project: "Research", start: "Sunday, Nov 1, 2026, 12:00 PM EST", minutes: 60 });
+    vi.mocked(c.list).mockResolvedValue([]);
+    const draftResult = await tools.find(t => t.name === "create_event")!.handle({ projectId: "project", start: { date: "2026-11-01", time: "12:00" }, end: { time: "13:00" } });
     const draft = JSON.parse(draftResult.text);
     expect(draft.summary).toContain("Sunday, Nov 1, 2026");
     expect(draft.summary).toContain("12:00 PM EST");
     expect(draft.preview.localTime.timezone).toBe("America/New_York");
-    expect(JSON.parse((vi.mocked(convex.mutation).mock.calls[0][1] as any).payload).body.startTime).toBe(event.startTime);
+    expect(Date.parse(JSON.parse((vi.mocked(convex.mutation).mock.calls[0][1] as any).payload).body.startTime)).toBe(Date.parse(event.startTime));
   });
   it("returns localized saved timestamps after executing an approved event draft", async () => {
     const event = { id: "entry", projectId: "project", startTime: "2026-11-01T20:00:00Z", endTime: "2026-11-01T21:00:00Z", isActive: false };
@@ -69,6 +70,6 @@ describe("TimeTracker local time handling", () => {
     const tools = createTimeTrackerTools("chat", undefined, async () => null);
     const result = await tools.find(t => t.name === "resolve_local_time")!.handle({ date: "2026-11-01", time: "15:00" });
     expect(result.success).toBe(false);
-    expect(result.text).toContain("set their timezone");
+    expect(result.text).toContain("for their timezone");
   });
 });

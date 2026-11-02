@@ -45,3 +45,23 @@ it("exposes TimeTracker directly on the main agent and keeps follow-up history",
   await handleUserMessage({ conversationId: "fixture", content: "Log a TimeTracker entry for my research session." });
   expect(convex.query).toHaveBeenCalledWith(expect.anything(), { conversationId: "fixture", limit: 30 });
 });
+
+it("keeps TimeTracker work on the main agent and shows its unsaved operations", async () => {
+  const { listEnabledIntegrations } = await import("../server/integrations/registry.js");
+  const { convex } = await import("../server/convex-client.js");
+  vi.mocked(listEnabledIntegrations).mockResolvedValueOnce([{ name: "timetracker" }] as any);
+  vi.mocked(convex.query).mockImplementation(async (_fn, args: any) => args && "conversationId" in args && !("limit" in args)
+    ? [{ draftId: "draft_pending", kind: "timetracker.action", summary: "Log TimeTracker entry: Friday 10:15 AM", createdAt: Date.now() }] as any : []);
+  vi.mocked(spawnExecutionAgent).mockClear();
+  vi.mocked(runAgentRuntime).mockImplementationOnce(async (_config, request) => {
+    expect(request.systemPrompt).toContain("draft_pending");
+    const tool = request.tools.find(tool => tool.name === BOOP_DELEGATE_TOOL)!;
+    const result = await tool.handle({ task: "Publish the pending entry", integrations: ["timetracker"] });
+    expect(result.success).toBe(false);
+    expect(result.text).toContain("directly in this conversation");
+    return { text: "Done.", usage: EMPTY_USAGE };
+  });
+  await handleUserMessage({ conversationId: "fixture", content: "Push the lab entry too." });
+  expect(spawnExecutionAgent).not.toHaveBeenCalled();
+  vi.mocked(convex.query).mockResolvedValue([]);
+});

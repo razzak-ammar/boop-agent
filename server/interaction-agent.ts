@@ -1,4 +1,4 @@
-import { createTimeTrackerTools } from "./time-tracker/tools.js";
+import { createTimeTrackerTools, loadPendingTimeTrackerNote } from "./time-tracker/tools.js";
 import { createCalendarTools } from "./calendar/tools.js";
 import { parseRememberCommand, storeRawNote } from "./memory/note-intake.js";
 import { describeUserNow } from "./timezone-config.js";
@@ -157,7 +157,8 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
 
   const systemPrompt = opts.kind === "proactive"
     ? PROACTIVE_SYSTEM
-    : buildInteractionPrompt(integrations, await describeUserNow()) + await loadMemoryProfile();
+    : buildInteractionPrompt(integrations, await describeUserNow()) + await loadMemoryProfile() +
+      (integrations.includes("timetracker") ? await loadPendingTimeTrackerNote(opts.conversationId) : "");
 
   const userText = opts.mediaError
     ? `[user sent images but they couldn't be downloaded: ${opts.mediaError}]\n${opts.content}`
@@ -328,6 +329,11 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           args.imageRefs,
           spawnableImageStorageIds,
         );
+        // Workers cannot see this conversation's pending TimeTracker operations,
+        // which once made "push the pending entry" report that none existed.
+        if (trackerTools.length && args.integrations.includes("timetracker")) {
+          return runtimeText("TimeTracker tools are available directly in this conversation. Use them instead of delegating; workers cannot see this conversation's pending TimeTracker operations.", false);
+        }
         const requestedIntegrations = resolveSpawnIntegrations(
           args.integrations,
           integrations,
@@ -421,7 +427,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           || /^mcp__boop-automations__(?:create_reminder|create_automation|reschedule_automation|list_automations)$/.test(toolName)
           || toolName === "mcp__boop-self__get_config";
         if (!schedulingSupport) performedOtherWork = true;
-        const name = toolName.replace(/^mcp__boop-[a-z-]+__/, "");
+        const name = toolName.replace(/^mcp__(?:boop-[a-z-]+|timetracker)__/, "");
         const inputPreview = JSON.stringify(input);
         log(
           `tool: ${name}(${inputPreview.length > 90 ? inputPreview.slice(0, 90) + "…" : inputPreview})`,

@@ -4,6 +4,8 @@ import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
+import type { PaginationResult } from "convex/server";
 const modules = import.meta.glob("./**/*.ts");
 const note = { collection: "Movies", title: "Arrival", content: "Sam recommended this after our conversation.", kind: "note" as const, sourceConversationId: "telegram:fixture", status: "want-to-watch", recommendedBy: "Sam" };
 
@@ -27,7 +29,7 @@ describe("saved notes and named collections", () => {
     let cursor: string | null = null;
     const titles: string[] = [];
     for (;;) {
-      const page = await t.query(api.savedItems.list, { collection: "movies", status: "want-to-watch", paginationOpts: { cursor, numItems: 4 } });
+      const page: PaginationResult<Doc<"savedItems">> = await t.query(api.savedItems.list, { collection: "movies", status: "want-to-watch", paginationOpts: { cursor, numItems: 4 } });
       titles.push(...page.page.map(item => item.title));
       if (page.isDone) break;
       cursor = page.continueCursor;

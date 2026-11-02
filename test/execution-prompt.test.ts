@@ -6,8 +6,8 @@ describe("worker capability context", () => {
     expect(prompt).not.toContain("Apple data:");
     expect(prompt).not.toContain("Local browser:");
     expect(prompt).toContain("ACTUAL URLs");
-    expect(prompt).toContain("call save_draft");
-    expect(prompt).toContain("You never commit");
+    expect(prompt).toContain("Use save_draft only for an explicit draft request");
+    expect(prompt).toContain("Do not add an approval step");
   });
   it("keeps optional integration guidance when available", () => {
     expect(buildExecutionPrompt(["apple", "browser"])).toContain("Apple data:");

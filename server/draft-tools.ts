@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { executeTimeTrackerDraft } from "./time-tracker/tools.js";
+import { randomUUID } from "node:crypto";
+import { executeTimeTrackerDraft, reviseTimeTrackerDraft } from "./time-tracker/tools.js";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { spawnExecutionAgent } from "./execution-agent.js";
@@ -18,7 +19,7 @@ export function createDraftStagingTools(conversationId: string): RuntimeTool[] {
       "boop-drafts",
       "save_draft",
       `Save a draft of an external action (email, calendar event, message, etc.) for the user to review.
-ALWAYS call this instead of sending or creating something directly. The user will say "send it" in the next turn to commit.
+Use only when the user asks for a draft or preview, or explicitly asks to wait before sending. For a clear request to perform an action, use the real integration tool instead.
 
 - summary: one-line description the user will see.
 - payload: JSON string with everything needed to execute the draft (provider-specific fields).
@@ -74,6 +75,23 @@ export function createDraftDecisionTools(
       },
     ),
 
+    defineRuntimeTool("boop-draft-decisions", "get_draft", "Read a pending draft's full payload in this conversation. Use to continue or revise a prior request without asking the user to repeat it.", { draftId: z.string() }, async ({ draftId }) => {
+      const draft = await convex.query(api.drafts.get, { draftId });
+      if (!draft || draft.conversationId !== conversationId || draft.status !== "pending") return runtimeText("Pending draft not found in this conversation.", false);
+      return runtimeText(JSON.stringify({ draftId, kind: draft.kind, summary: draft.summary, payload: draft.payload }));
+    }),
+    defineRuntimeTool("boop-draft-decisions", "update_draft", "Revise a pending TimeTracker draft in place from the user's correction. Preserves its project, dates, other fields and stable entry ID. Returns its replacement draft ID; this does not publish it.", { draftId: z.string(), changes: z.record(z.string(), z.unknown()) }, async ({ draftId, changes }) => {
+      const draft = await convex.query(api.drafts.get, { draftId });
+      if (!draft || draft.conversationId !== conversationId || draft.status !== "pending" || draft.kind !== "timetracker.action") return runtimeText("Pending TimeTracker draft not found in this conversation.", false);
+      try {
+        const revised = await reviseTimeTrackerDraft(draft.payload, changes);
+        const replacementId = `draft_${randomUUID()}`;
+        await convex.mutation(api.drafts.create, { draftId: replacementId, conversationId, kind: draft.kind, ...revised });
+        await convex.mutation(api.drafts.setStatus, { draftId, status: "rejected" });
+        return runtimeText(JSON.stringify({ draftId: replacementId, summary: revised.summary, status: "pending", replaces: draftId }));
+      } catch (error) { return runtimeText(error instanceof Error ? error.message : "Draft update failed.", false); }
+    }),
+
     defineRuntimeTool(
       "boop-draft-decisions",
       "send_draft",
@@ -84,8 +102,8 @@ export function createDraftDecisionTools(
         if (!draft || draft.status !== "pending") {
           return runtimeText(`Draft ${args.draftId} not found or already decided.`, false);
         }
+        if (draft.conversationId !== conversationId) return runtimeText("Draft belongs to another conversation.", false);
         if (draft.kind === "timetracker.action") {
-          if (draft.conversationId !== conversationId) return runtimeText("Draft belongs to another conversation.", false);
           try {
             const result = await executeTimeTrackerDraft(draft.payload);
             await convex.mutation(api.drafts.setStatus, { draftId: args.draftId, status: "sent" });
@@ -94,10 +112,6 @@ export function createDraftDecisionTools(
             return runtimeText(error instanceof Error ? error.message : "TimeTracker action failed. Draft remains pending.", false);
           }
         }
-        await convex.mutation(api.drafts.setStatus, {
-          draftId: args.draftId,
-          status: "sent",
-        });
         const task = `Execute this approved draft. Use the matching integration tool to actually send/create it.
 kind: ${draft.kind}
 summary: ${draft.summary}
@@ -109,6 +123,8 @@ payload JSON: ${draft.payload}`;
           name: `send:${draft.kind}`,
           runtimeConfig,
         });
+        if (res.status !== "completed") return runtimeText(`Draft ${args.draftId} could not be completed and remains pending. ${res.result}`, false);
+        await convex.mutation(api.drafts.setStatus, { draftId: args.draftId, status: "sent" });
         return runtimeText(`Draft ${args.draftId} executed.\n\n${res.result}`);
       },
     ),

@@ -1,5 +1,6 @@
 import { getStoredUserTimezone } from "../timezone-config.js";
 import { eventPreview, localizeEvent, resolveLocalTime } from "./time.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { api } from "../../convex/_generated/api.js";
@@ -80,14 +81,38 @@ export async function executeTimeTrackerDraft(payload: string, client = getTimeT
   return result;
 }
 
-export function createTimeTrackerTools(conversationId?: string, clientProvider = getTimeTrackerClient, timezoneProvider = getStoredUserTimezone): RuntimeTool[] {
+export async function reviseTimeTrackerDraft(payload: string, changes: Record<string, unknown>, clientProvider = getTimeTrackerClient, timezoneProvider = getStoredUserTimezone): Promise<{ payload: string; summary: string }> {
+  const draft = draftSchema.parse(JSON.parse(payload));
+  if (draft.operation === "delete_event") throw new Error("A deletion draft cannot be edited; cancel it instead.");
+  const project = draft.operation === "create_project" || draft.operation === "update_project";
+  const patch = project ? projectPatch.parse(changes) : eventPatch.parse(changes);
+  const updated = draftSchema.parse({ ...draft, body: { ...draft.body, ...patch } });
+  if (updated.operation === "delete_event") throw new Error("Cannot revise a deletion.");
+  if (updated.operation === "create_project" || updated.operation === "update_project") return { payload: JSON.stringify(updated), summary: `TimeTracker project: ${JSON.stringify(updated.body)}` };
+  const timezone = await timezoneProvider();
+  if (!timezone) throw new Error("Set the user's timezone before revising an entry.");
+  const event = updated.operation === "create_event" ? updated.body : { ...await clientProvider().get("events", updated.id), ...updated.body };
+  validateEvent(event);
+  return { payload: JSON.stringify(updated), summary: `TimeTracker entry: ${eventPreview(event, timezone)}` };
+}
+
+export function createTimeTrackerTools(conversationId?: string, clientProvider = getTimeTrackerClient, timezoneProvider = getStoredUserTimezone, writeMode: "draft" | "direct" = "draft"): RuntimeTool[] {
   const tools: RuntimeTool[] = [];
+  const requestedDraft = new AsyncLocalStorage<boolean>();
+  const writeNames = new Set(["create_project", "update_project", "create_event", "update_event", "delete_event", "start_timer", "stop_timer"]);
   const add = <T extends z.ZodRawShape>(name: string, description: string, shape: T, handle: (args: z.infer<z.ZodObject<T>>) => Promise<unknown>) => {
-    tools.push(defineRuntimeTool("timetracker", name, description, shape, async args => {
-      try { return runtimeText(JSON.stringify(await handle(args))); }
+    const write = writeNames.has(name);
+    const schema = write ? { ...shape, draftOnly: z.boolean().optional().describe("True only if the user explicitly requests a draft or preview without saving.") } : shape;
+    const help = write && writeMode === "direct"
+      ? `Perform the user's requested TimeTracker change immediately and return its saved result. No additional approval is needed. Set draftOnly=true only for an explicit draft/preview request. ${description.replace(/Stage /g, "Prepare ").replace(/for approval/g, "for saving").replace(/does not write to TimeTracker yet/g, "saves immediately")}`
+      : description;
+    tools.push(defineRuntimeTool("timetracker", name, help, schema, async args => {
+      const { draftOnly, ...input } = args as Record<string, unknown>;
+      try { return await requestedDraft.run(draftOnly === true, async () => runtimeText(JSON.stringify(await handle(input as z.infer<z.ZodObject<T>>)))); }
       catch (error) { return runtimeText(error instanceof Error ? error.message : "TimeTracker operation failed.", false); }
     }));
   };
+
   const requireTimezone = async () => {
     const timezone = await timezoneProvider();
     if (!timezone) throw new Error("Ask the user to set their timezone before preparing a time-entry draft.");
@@ -109,6 +134,15 @@ export function createTimeTrackerTools(conversationId?: string, clientProvider =
     }
     const draftId = `draft_${randomUUID()}`;
     await convex.mutation(api.drafts.create, { draftId, conversationId, kind: "timetracker.action", summary, payload: JSON.stringify(draft) });
+    if (writeMode === "direct" && !requestedDraft.getStore()) {
+      try {
+        const result = await executeTimeTrackerDraft(JSON.stringify(draft), clientProvider(), timezoneProvider);
+        await convex.mutation(api.drafts.setStatus, { draftId, status: "sent" });
+        return { status: "saved", draftId, summary, result };
+      } catch (error) {
+        throw new Error(`TimeTracker save could not be confirmed. Operation ${draftId} remains pending; inspect/retry this exact operation with get_draft/send_draft rather than creating another. ${error instanceof Error ? error.message : "Request failed."}`);
+      }
+    }
     return { draftId, summary, ...(preview ? { preview } : {}), status: "pending", instruction: "Show this draft to the user. Only send_draft commits after approval. Do not save another copy with save_draft." };
   };
   add("resolve_local_time", "Convert an explicit local calendar date and 24-hour time to API timestamps using the user's saved timezone. Call this before writing times or building date filters; do not calculate UTC offsets yourself. Resolve relative dates from Application Time context. Ambiguous/nonexistent DST times require clarification.", {
@@ -163,6 +197,6 @@ export function createTimeTrackerTools(conversationId?: string, clientProvider =
   });
   return tools;
 }
-export function createTimeTrackerMcp(conversationId?: string) {
-  return createClaudeMcpServer("timetracker", createTimeTrackerTools(conversationId));
+export function createTimeTrackerMcp(conversationId?: string, writeMode: "draft" | "direct" = "draft") {
+  return createClaudeMcpServer("timetracker", createTimeTrackerTools(conversationId, undefined, undefined, writeMode));
 }

@@ -29,3 +29,19 @@ describe("application-owned delegation",()=>{
     expect(spawnExecutionAgent).toHaveBeenCalledWith(expect.objectContaining({integrations:["googlecalendar"],task:"List Google Calendar calendars and find Meetings"}));
   });
 });
+
+it("exposes TimeTracker directly on the main agent and keeps follow-up history", async () => {
+  const { listEnabledIntegrations } = await import("../server/integrations/registry.js");
+  const { convex } = await import("../server/convex-client.js");
+  vi.mocked(listEnabledIntegrations).mockResolvedValueOnce([{ name: "timetracker" }] as any);
+  vi.mocked(runAgentRuntime).mockImplementationOnce(async (_config, request) => {
+    expect(request.tools.some(tool => tool.namespace === "timetracker" && tool.name === "create_event")).toBe(true);
+    expect(request.tools.find(tool => tool.name === "create_event")?.description).toContain("No additional approval is needed");
+    expect(request.allowedTools).toContain("mcp__timetracker__*");
+    expect(request.tools.some(tool => tool.name === "get_draft")).toBe(true);
+    expect(request.tools.some(tool => tool.name === "update_draft")).toBe(true);
+    return { text: "Ready to log your requested entry.", usage: EMPTY_USAGE };
+  });
+  await handleUserMessage({ conversationId: "fixture", content: "Log a TimeTracker entry for my research session." });
+  expect(convex.query).toHaveBeenCalledWith(expect.anything(), { conversationId: "fixture", limit: 30 });
+});

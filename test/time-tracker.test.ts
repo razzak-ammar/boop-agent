@@ -123,3 +123,33 @@ describe("TimeTracker tools and drafts", () => {
     expect(convex.mutation).not.toHaveBeenCalled();
   });
 });
+
+describe("direct TimeTracker actions", () => {
+  it("saves a requested entry immediately with a durable receipt, without a confirmation turn", async () => {
+    const record = { id: "project", updatedAt: "v1" };
+    const c = { get: vi.fn().mockResolvedValue(record), create: vi.fn().mockImplementation(async (_r, body) => ({ data: body })) } as unknown as TimeTrackerClient;
+    const tool = createTimeTrackerTools("chat", () => c, async () => "America/New_York", "direct").find(t => t.name === "create_event")!;
+    const result = await tool.handle({ projectId: "project", startTime: "2026-11-01T15:00:00-05:00", endTime: "2026-11-01T16:00:00-05:00", description: "Research" });
+    expect(result.success).toBe(true);
+    expect(JSON.parse(result.text)).toMatchObject({ status: "saved", result: { data: { description: "Research" } } });
+    expect(c.create).toHaveBeenCalledTimes(1);
+    expect(convex.mutation).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ status: "sent" }));
+    const receipt = (vi.mocked(convex.mutation).mock.calls[0][1] as any);
+    expect(JSON.parse(receipt.payload).body.id).toBe(vi.mocked(c.create).mock.calls[0][1].id);
+  });
+  it("still honors an explicit draft-only request without saving", async () => {
+    const c = { get: vi.fn().mockResolvedValue({ id: "project", updatedAt: "v1" }), create: vi.fn() } as unknown as TimeTrackerClient;
+    const tool = createTimeTrackerTools("chat", () => c, async () => "America/New_York", "direct").find(t => t.name === "create_event")!;
+    const result = await tool.handle({ projectId: "project", startTime: "2026-11-01T15:00:00-05:00", endTime: "2026-11-01T16:00:00-05:00", draftOnly: true });
+    expect(JSON.parse(result.text).status).toBe("pending");
+    expect(c.create).not.toHaveBeenCalled();
+  });
+  it("keeps the original operation pending on failure rather than claiming it saved", async () => {
+    const c = { create: vi.fn().mockRejectedValue(new Error("offline")) } as unknown as TimeTrackerClient;
+    const tool = createTimeTrackerTools("chat", () => c, async () => "America/New_York", "direct").find(t => t.name === "create_project")!;
+    const result = await tool.handle({ name: "Research", color: "#123456" });
+    expect(result.success).toBe(false);
+    expect(result.text).toContain("remains pending");
+    expect(convex.mutation).toHaveBeenCalledTimes(1);
+  });
+});

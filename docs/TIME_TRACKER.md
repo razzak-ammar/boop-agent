@@ -3,7 +3,10 @@
 Boop includes a native `timetracker` integration for personal research and TA time
 entries. It uses the HTTP API described in [the OpenAPI contract](time-tracker.openapi.json),
 with no additional MCP service or Composio account. Both Claude and Codex runtimes
-use the same tools.
+use the same tools. The main conversation agent has direct access: clear requests
+are saved immediately without a worker or another approval turn. Follow-ups use
+recent conversation, project memory and existing entries. Explicit draft/preview
+requests remain supported with `draftOnly: true`.
 
 ## Setup
 
@@ -52,13 +55,18 @@ Tools: `resolve_local_time`, `check_connection`, `list_projects`, `get_project`,
 `update_project`, `list_events`, `get_event`, `create_event`, `update_event`,
 `delete_event`, `start_timer`, and `stop_timer`.
 
-Events are time entries, not calendar events. Write tools automatically save a
-pending Boop draft containing the exact operation and a stable UUID for creates.
-They do not write to TimeTracker. Present the draft and use the existing
-`send_draft` approval flow; do not call `save_draft` a second time. Approved
-TimeTracker drafts execute directly through the client, without a second model
-worker. Failed actions stay pending. DELETE moves the entry to recoverable trash;
-restore remains in the tracker app.
+Events are time entries, not calendar events. Write tools persist a durable
+operation receipt (including a stable UUID for creates) before sending the write.
+By default the main agent and workers execute clear requests immediately and mark
+successful receipts sent. On failure the receipt stays pending with its original
+ID so it can be inspected/retried without blindly creating another entry.
+
+For an explicit preview/draft request, write tools accept `draftOnly: true` and
+return a pending draft. `list_drafts` and `get_draft` recover its full details;
+`update_draft` applies partial corrections while preserving the original entry ID,
+dates and other fields. It creates a revised draft and rejects the old one; use
+the returned replacement ID. `send_draft` publishes it when requested. DELETE
+moves the entry to recoverable trash; restore remains in the tracker app.
 
 Before an update/delete, Boop re-reads the entry and compares `updatedAt` with the
 version captured in the draft. Changes since staging block execution and require

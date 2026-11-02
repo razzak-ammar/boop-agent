@@ -2,7 +2,7 @@
 
 Boop's integrations are provided by [Composio](https://composio.dev/?utm_source=chris&utm_medium=youtube&utm_campaign=collab), a tool-aggregator that exposes 1000+ third-party services (Gmail, GitHub, Slack, Notion, Linear, Google Drive, HubSpot, Salesforce, …) behind one API.
 
-Built-in non-Composio integrations include **TimeTracker**, **Apple data**, and **Local browser use**. TimeTracker setup and its draft approval flow are documented in [docs/TIME_TRACKER.md](docs/TIME_TRACKER.md). Local browser use registers as `browser` only when enabled in the debug dashboard and gives spawned agents a local Patchright Chrome profile for login-required services, visual workflows, JS-heavy pages, or sites that may detect ordinary automation.
+Built-in non-Composio integrations include **TimeTracker**, **Apple data**, and **Local browser use**. TimeTracker setup and direct-action behavior are documented in [docs/TIME_TRACKER.md](docs/TIME_TRACKER.md). Local browser use registers as `browser` only when enabled in the debug dashboard and gives spawned agents a local Patchright Chrome profile for login-required services, visual workflows, JS-heavy pages, or sites that may detect ordinary automation.
 
 For Composio services:
 
@@ -96,6 +96,6 @@ This is a one-time setup per toolkit (not per user) — all users of your Boop i
 ## Notes
 
 - **Single-tenant by default.** All connections are keyed under `COMPOSIO_USER_ID` (defaults to `boop-default`). Override if you manage Composio sessions elsewhere and want Boop to share that user.
-- **External actions still use the draft flow.** Execution agents stage external actions with `save_draft`; TimeTracker write tools stage their own drafts automatically. The dispatcher's `send_draft` is the only path that actually commits.
+- **Clear requests authorize actions.** Agents execute supported requests without redundant approval. Drafts are used when the user asks for a draft/preview or to wait before sending. TimeTracker runs directly in the main conversation for faster follow-ups.
 - **Composio tokens stay with Composio.** Native TimeTracker credentials are configured locally and its rotated refresh token is stored in a private session file; see its setup guide.
 - **Tool names are Composio's canonical slugs** (e.g., `GMAIL_LIST_MESSAGES`). The debug dashboard humanizes them for display.

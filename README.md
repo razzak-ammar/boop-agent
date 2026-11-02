@@ -4,6 +4,9 @@
 
 # Boop
 
+**Saved library:** durable notes, named collections, and Telegram link/screenshot capture. See [Saved notes and collections](docs/SAVED.md).
+
+
 **This fork's Telegram/Codex alpha:** see [TELEGRAM_ALPHA.md](./TELEGRAM_ALPHA.md)
 for private phone chat without Sendblue, recurring reminder delivery, and setup.
 

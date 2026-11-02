@@ -2,6 +2,8 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { formattedTelegramChunks } from "./telegram-format.js";
+import { MAX_IMAGE_BYTES } from "./images/mime.js";
+import { readCappedImageBytes } from "./images/read-bytes.js";
 export { telegramChunks } from "./telegram-format.js";
 
 export interface TelegramConfig {
@@ -16,8 +18,22 @@ export interface TelegramUpdate {
     from?: { id: number; is_bot?: boolean };
     chat: { id: number; type: string };
     text?: string;
+    caption?: string;
+    entities?: TelegramEntity[];
+    caption_entities?: TelegramEntity[];
+    photo?: Array<{ file_id: string; width: number; height: number; file_size?: number }>;
+    document?: { file_id: string; mime_type?: string; file_size?: number; file_name?: string };
   };
 }
+
+export interface TelegramEntity { type: string; offset: number; length: number; url?: string }
+export interface CapturedTelegramMessage {
+  content: string;
+  images?: Array<{ storageId: string; mediaType: string }>;
+  captureNotice?: string;
+  captureOnly?: boolean;
+}
+export type TelegramCapture = (update: TelegramUpdate, client: TelegramClient) => Promise<CapturedTelegramMessage>;
 
 export function telegramConfig(env = process.env): TelegramConfig | null {
   const token = env.TELEGRAM_BOT_TOKEN?.trim();
@@ -87,6 +103,30 @@ export class TelegramClient {
       await this.call("sendMessage", { chat_id: chatId, text: chunk.text, ...(chunk.entities.length ? { entities: chunk.entities } : {}) });
     }
   }
+
+  async downloadImage(fileId: string, declaredSize?: number): Promise<Buffer> {
+    if (declaredSize !== undefined && declaredSize > MAX_IMAGE_BYTES) throw new Error("Image exceeds 10 MB.");
+    const file = await this.call<{ file_path?: string; file_size?: number }>("getFile", { file_id: fileId });
+    if (!file.file_path || !/^[\w/.-]+$/.test(file.file_path) || file.file_path.split("/").some(part => !part || part === "." || part === "..")) {
+      throw new Error("Telegram returned an invalid image path.");
+    }
+    if (file.file_size !== undefined && file.file_size > MAX_IMAGE_BYTES) throw new Error("Image exceeds 10 MB.");
+    try {
+      const response = await this.fetcher(`https://api.telegram.org/file/bot${this.config.token}/${file.file_path}`, {
+        signal: AbortSignal.timeout(40_000), redirect: "error",
+      });
+      if (!response.ok) throw new Error("Image download failed.");
+      const length = Number(response.headers.get("content-length"));
+      if (length > MAX_IMAGE_BYTES) {
+        await response.body?.cancel();
+        throw new Error("Image exceeds 10 MB.");
+      }
+      return await readCappedImageBytes(response);
+    } catch {
+      // Both the URL and network errors may contain the bot token.
+      throw new Error("Telegram image download failed or exceeded 10 MB.");
+    }
+  }
 }
 
 export async function sendTelegram(conversationId: string, text: string): Promise<void> {
@@ -97,33 +137,58 @@ export async function sendTelegram(conversationId: string, text: string): Promis
 }
 
 export interface TelegramHandler {
-  (message: { conversationId: string; content: string }): Promise<string>;
+  (message: { conversationId: string; content: string; images?: Array<{ storageId: string; mediaType: string }> }): Promise<string>;
 }
 
 export async function handleTelegramUpdate(
   update: TelegramUpdate,
   client: TelegramClient,
   handleMessage: TelegramHandler,
+  capture?: TelegramCapture,
 ): Promise<void> {
   const message = update.message;
   const ownerId = client.config.ownerId;
   if (!message || message.chat.type !== "private" || message.chat.id !== ownerId || message.from?.id !== ownerId || message.from.is_bot) return;
-  if (!message.text) {
-    await client.send(ownerId, "This alpha supports text messages only. Please type what you want me to remember or do.");
+  const hasImage = Boolean(message.photo?.length || message.document?.mime_type?.startsWith("image/"));
+  if (!message.text && !hasImage) {
+    await client.send(ownerId, "Send text, a shared link, or a screenshot/photo (up to 10 MB). Voice notes are not supported.");
     return;
   }
-  if (/^\/start(?:@\w+)?(?:\s|$)/.test(message.text)) {
-    await client.send(ownerId, "Boop is connected. Send me notes, questions, or recurring reminders. Tell me your timezone before scheduling.");
+  if (message.text && /^\/start(?:@\w+)?(?:\s|$)/.test(message.text)) {
+    await client.send(ownerId, "Boop is connected. Use /remember for saved notes. Shared links and screenshots go to Inbox; ask me to organize them into collections. Tell me your timezone before scheduling.");
     return;
   }
   const stopTyping = client.startTyping(ownerId);
-  let reply: string;
+  let reply = "";
+  let captureNotice = "";
   try {
-    reply = await handleMessage({ conversationId: `telegram:${ownerId}`, content: message.text });
+    let prepared: CapturedTelegramMessage = { content: message.text ?? message.caption ?? "" };
+    let captureFailed = false;
+    const hasLink = /https?:\/\//i.test(prepared.content) || [...(message.entities ?? []), ...(message.caption_entities ?? [])].some(entity => entity.type === "text_link");
+    if (hasImage || hasLink) {
+      try {
+        const captureMessage = capture ?? (await import("./telegram-capture.js")).captureTelegramMessage;
+        prepared = await captureMessage(update, client);
+        captureNotice = prepared.captureNotice ?? "";
+      } catch {
+        reply = "I couldn't save that attachment or link. Please resend it; images must be JPEG, PNG, WebP, or GIF and at most 10 MB.";
+        captureFailed = true;
+      }
+    }
+    // Bare shares only need durable capture. A caption can still ask a task.
+    if (!captureFailed) {
+      if (prepared.captureOnly) {
+        reply = captureNotice;
+      } else {
+        reply = await handleMessage({ conversationId: `telegram:${ownerId}`, content: prepared.content,
+          ...(prepared.images?.length ? { images: prepared.images } : {}) });
+        if (captureNotice) reply = `${captureNotice}\n\n${reply}`;
+      }
+    }
   } catch {
     // A failed turn may already have performed a tool action. Don't replay it
     // automatically, and don't reveal internal errors to the chat.
-    reply = "I couldn't finish that request. Some actions may have completed; check before retrying.";
+    reply = `${captureNotice ? captureNotice + "\n\n" : ""}I couldn't finish that request. Some actions may have completed; check before retrying.`;
     console.error("[telegram] agent turn failed");
   } finally {
     // Abort any outstanding pulse before delivering the final/error message.
@@ -178,6 +243,6 @@ export async function startTelegram(
       }
     }
   })();
-  console.log("[telegram] private text chat polling enabled");
+  console.log("[telegram] private chat and image capture polling enabled");
   return { stop: () => controller.abort(), done };
 }

@@ -7,6 +7,7 @@ import { formatRecordCost } from "./token-pricing.js";
 import { z } from "zod";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
+import { createSavedTools } from "./saved/tools.js";
 import { createMemoryTools } from "./memory/tools.js";
 import { extractAndStore } from "./memory/extract.js";
 import { spawnExecutionAgent } from "./execution-agent.js";
@@ -173,11 +174,11 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   // Snapshot runtime for this top-level turn so same-turn set_runtime/set_model
   // changes do not split the dispatcher and any spawned execution agent.
   const runtimeConfig = await getRuntimeConfig();
-  const note = opts.kind !== "proactive" && !inboundImageStorageIds.length && !opts.mediaError
+  const note = opts.kind !== "proactive" && !opts.mediaError
     ? parseRememberCommand(opts.content) : null;
   if (note !== null) {
     const reply = note ? "Saved your full note. I'll organize the details into memory." : "Send /remember followed by the information you'd like me to save.";
-    if (note) await storeRawNote(opts.conversationId, turnId, note);
+    if (note) await storeRawNote(opts.conversationId, turnId, note, inboundImageStorageIds);
     broadcast("assistant_message", { conversationId: opts.conversationId, content: reply });
     if (opts.persistAssistantReply) {
       await convex.mutation(api.messages.send, {
@@ -186,7 +187,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     }
     if (note) {
       extractAndStore({ conversationId: opts.conversationId, userMessage: note,
-        assistantReply: reply, turnId, runtimeConfig,
+        assistantReply: reply, turnId, runtimeConfig, imageStorageIds: inboundImageStorageIds,
       }).catch((err) => console.error("[interaction] note extraction error", err));
     }
     return reply;
@@ -276,6 +277,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
       return runtimeText(JSON.stringify(messages.map(message => ({ role: message.role, content: message.content, at: new Date(message.createdAt).toISOString() }))));
     }),
     ...createMemoryTools(opts.conversationId),
+    ...createSavedTools(opts.conversationId, inboundImageStorageIds),
     ...createAutomationTools(opts.conversationId),
     ...createDraftDecisionTools(opts.conversationId, runtimeConfig),
     ...createSelfTools(),
@@ -365,6 +367,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           : [
               "mcp__boop-memory__write_memory",
               "mcp__boop-memory__recall",
+              "mcp__boop-saved__*",
               `mcp__boop-spawn__${BOOP_DELEGATE_TOOL}`,
               "mcp__boop-automations__create_automation",
               "mcp__boop-automations__create_reminder",

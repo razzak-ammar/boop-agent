@@ -36,25 +36,21 @@ async function findAnchoredStorageIds(storageIds: string[]): Promise<Set<string>
   const found = new Set<string>();
   if (wanted.length === 0) return found;
 
-  let cursor: string | null = null;
-  for (;;) {
-    // TODO(codegen): drop cast once schema push regenerates Convex API.
-    const result = (await convex.query(api.memoryRecords.findImageRefsPage, {
-      storageIds: wanted as never,
-      cursor,
-      pageSize: MEMORY_REF_PAGE_SIZE,
-    } as never)) as {
-      foundStorageIds: string[];
-      isDone: boolean;
-      continueCursor: string | null;
-    };
-    for (const id of result.foundStorageIds) found.add(id);
-    if (found.size === wanted.length || result.isDone) break;
-    if (result.continueCursor === cursor) {
-      console.warn("[image-cleanup] memory ref cursor did not advance; keeping unresolved refs");
-      break;
+  for (const referenceQuery of [api.memoryRecords.findImageRefsPage, api.savedItems.findImageRefsPage]) {
+    let cursor: string | null = null;
+    for (;;) {
+      const result: { foundStorageIds: string[]; isDone: boolean; continueCursor: string | null } = await convex.query(referenceQuery, {
+        storageIds: wanted as never,
+        cursor,
+        pageSize: MEMORY_REF_PAGE_SIZE,
+      });
+      for (const id of result.foundStorageIds) found.add(id);
+      if (found.size === wanted.length || result.isDone) break;
+      if (result.continueCursor === cursor) {
+        throw new Error("Image reference scan did not advance; keeping unresolved refs.");
+      }
+      cursor = result.continueCursor;
     }
-    cursor = result.continueCursor;
   }
   return found;
 }

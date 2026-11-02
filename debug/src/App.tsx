@@ -19,6 +19,7 @@ import { DashboardPanel } from "./components/DashboardPanel.js";
 import { AgentsPanel } from "./components/AgentsPanel.js";
 import { AutomationsPanel } from "./components/AutomationsPanel.js";
 import { MemoryPanel } from "./components/MemoryPanel.js";
+import { SavedPanel } from "./components/SavedPanel.js";
 import { EventsPanel } from "./components/EventsPanel.js";
 import { ConnectionsPanel } from "./components/ConnectionsPanel.js";
 import { ConsolidationPanel } from "./components/ConsolidationPanel.js";
@@ -32,6 +33,7 @@ type View =
   | "agents"
   | "automations"
   | "memory"
+  | "saved"
   | "events"
   | "consolidation"
   | "connections"
@@ -89,6 +91,7 @@ const NAV_ICONS: Record<View, any> = {
   agents: MachineRobotIcon,
   automations: WorkflowCircle03Icon,
   memory: AiBrain02Icon,
+  saved: AiBrain02Icon,
   events: Activity01Icon,
   consolidation: ArrowShrink02Icon,
   connections: Link04Icon,
@@ -100,6 +103,7 @@ const NAV: { id: View; label: string }[] = [
   { id: "agents", label: "Agents" },
   { id: "automations", label: "Automations" },
   { id: "memory", label: "Memory" },
+  { id: "saved", label: "Saved" },
   { id: "events", label: "Events" },
   { id: "consolidation", label: "Consolidation" },
   { id: "connections", label: "Connections" },
@@ -390,6 +394,7 @@ export function App() {
               <MemoryPanel isDark={isDark} demoMode={demoModeEnabled} />
             )}
             {view === "events" && <EventsPanel isDark={isDark} />}
+            {view === "saved" && <SavedPanel isDark={isDark} demoMode={demoModeEnabled} />}
             {view === "consolidation" && <ConsolidationPanel isDark={isDark} />}
             {view === "connections" && <ConnectionsPanel isDark={isDark} />}
             {view === "settings" && (

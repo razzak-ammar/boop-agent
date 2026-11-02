@@ -20,7 +20,7 @@ describe("note intake through the message handler", () => {
     expect(runAgentRuntime).not.toHaveBeenCalled();
     expect(extractAndStore).toHaveBeenCalledWith(expect.objectContaining({userMessage:paragraph}));
     const writes = vi.mocked(convex.mutation).mock.calls.map(call => call[1]);
-    const rawIndex = writes.findIndex(args => args.content === `User note: ${paragraph}`);
+    const rawIndex = writes.findIndex(args => args.content === paragraph && args.collection === "Notes");
     const replyIndex = writes.findIndex(args => args.role === "assistant");
     expect(rawIndex).toBeGreaterThanOrEqual(0);
     expect(replyIndex).toBeGreaterThan(rawIndex);

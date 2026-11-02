@@ -1,6 +1,6 @@
 # Telegram + Codex alpha
 
-This fork supports private, text-only Telegram conversations and delivery of
+This fork supports private Telegram conversations with saved links and screenshots and delivery of
 Boop's recurring automation results. The server uses outbound long polling;
 no Sendblue account, inbound webhook, public port, or ngrok tunnel is required.
 
@@ -85,9 +85,11 @@ delivery/retry queue yet. Agent Markdown is converted to Telegram text entities 
 strikethrough, links, headings, and code. Long replies are split with formatting
 and emoji boundaries preserved; literal HTML is displayed as text.
 
-The alpha does not add photos, voice transcription, Google Calendar, todos,
-tracker tools, Markdown writing, daily backups, or one-time reminder scheduling.
-Those are subsequent integrations.
+Telegram now supports photo/screenshot and image-document capture, shared links,
+and durable notes/collections. See [Saved notes and collections](docs/SAVED.md)
+for supported image formats, retention, and dashboard controls. Voice notes and
+transcription are not supported. Other integrations and reminder behavior are
+documented in their respective guides.
 
 ## Privacy
 

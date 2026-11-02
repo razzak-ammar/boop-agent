@@ -15,10 +15,10 @@ describe("explicit note intake", () => {
   it("persists all text before emitting the saved event, even without embeddings", async () => {
     await storeRawNote('conversation', 'turn_test', 'First fact.\nSecond fact.');
     expect(vi.mocked(convex.mutation).mock.calls[0][1]).toMatchObject({
-      memoryId:'note_turn_test', content:'User note: First fact.\nSecond fact.',
-      tier:'long', sourceTurn:'turn_test',
+      collection:'Notes', content:'First fact.\nSecond fact.',
+      sourceConversationId:'conversation', sourceKey:'remember:conversation:turn_test',
     });
-    expect(vi.mocked(convex.mutation).mock.calls[1][1]).toMatchObject({eventType:'memory.written'});
+    expect(vi.mocked(convex.mutation).mock.calls[1][1]).toMatchObject({eventType:'saved.written'});
   });
   it("propagates storage failures so the caller cannot acknowledge an unsaved note", async () => {
     vi.mocked(convex.mutation).mockRejectedValueOnce(new Error('storage unavailable'));

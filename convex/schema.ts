@@ -2,6 +2,37 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  // Explicit saves are source records, independent of lossy/decaying memory.
+  savedCollections: defineTable({
+    name: v.string(),
+    key: v.string(),
+    createdAt: v.number(),
+  }).index("by_key", ["key"]),
+
+  savedItems: defineTable({
+    collectionId: v.id("savedCollections"),
+    title: v.string(),
+    content: v.string(),
+    searchText: v.string(),
+    kind: v.union(v.literal("note"), v.literal("link"), v.literal("image")),
+    status: v.string(),
+    recommendedBy: v.optional(v.string()),
+    urls: v.array(v.string()),
+    imageStorageIds: v.array(v.id("_storage")),
+    sourceConversationId: v.string(),
+    sourceKey: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_collectionId", ["collectionId"])
+    .index("by_collectionId_and_status", ["collectionId", "status"])
+    .index("by_status", ["status"])
+    .index("by_sourceKey", ["sourceKey"])
+    .searchIndex("search_text", {
+      searchField: "searchText",
+      filterFields: ["collectionId", "status"],
+    }),
+
   messages: defineTable({
     conversationId: v.string(),
     role: v.union(v.literal("user"), v.literal("assistant"), v.literal("system")),

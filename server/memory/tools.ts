@@ -5,9 +5,18 @@ import { embed, embeddingsAvailable } from "../embeddings.js";
 import { createClaudeMcpServer } from "../runtimes/claude.js";
 import { defineRuntimeTool } from "../runtimes/tool.js";
 import { runtimeText, type RuntimeTool } from "../runtimes/types.js";
+import type { RuntimeConfig } from "../runtime-config.js";
+import { reconcileMemory } from "./reconcile.js";
 import { DEFAULT_DECAY, SEGMENT_PREFERRED_TIER, makeMemoryId } from "./types.js";
 
 const NAMESPACE = "boop-memory";
+
+export interface MemoryToolOptions {
+  runtimeConfig?: RuntimeConfig;
+  turnId?: string;
+  /** Lets the turn tell background extraction what was already saved. */
+  onWrite?: (content: string) => void;
+}
 
 const tierEnum = z.enum(["short", "long", "permanent"]);
 const segmentEnum = z.enum([
@@ -20,7 +29,7 @@ const segmentEnum = z.enum([
   "context",
 ]);
 
-export function createMemoryTools(conversationId: string): RuntimeTool[] {
+export function createMemoryTools(conversationId: string, opts: MemoryToolOptions = {}): RuntimeTool[] {
   return [
     defineRuntimeTool(
       NAMESPACE,
@@ -62,6 +71,13 @@ export function createMemoryTools(conversationId: string): RuntimeTool[] {
           memoryId: stored.memoryId,
           data: JSON.stringify({ tier, segment: args.segment, importance: args.importance }),
         });
+        opts.onWrite?.(stored.content);
+        // Off the reply path: reconciling may need a model call.
+        void reconcileMemory({
+          memoryId: stored.memoryId, content: stored.content, segment: stored.segment,
+          embedding: embedding ?? stored.embedding, runtimeConfig: opts.runtimeConfig,
+          conversationId, turnId: opts.turnId,
+        });
         return runtimeText(`Stored ${stored.memoryId} (tier=${stored.tier}, segment=${stored.segment}).`);
       },
     ),
@@ -82,57 +98,66 @@ export function createMemoryTools(conversationId: string): RuntimeTool[] {
       },
     ),
 
-    defineRuntimeTool(
-      NAMESPACE,
-      "recall",
-      "Search your memories for anything relevant to the current turn. Call this early in any conversation that touches the user's preferences, projects, or past decisions.",
-      {
-        query: z.string().describe("Keywords or topic to search for."),
-        limit: z.number().optional().default(10),
-      },
-      async (args) => {
-        let results: any[] = [];
-        let mode: "vector" | "substring" = "substring";
+    recallTool(conversationId),
+  ];
+}
 
-        if (embeddingsAvailable()) {
-          const queryVec = await embed(args.query);
-          if (queryVec) {
-            const hits = await convex.action(api.memoryRecords.vectorSearch, {
-              embedding: queryVec,
-              limit: args.limit,
-            });
-            results = hits.map((h) => h.record);
-            mode = "vector";
-          }
-        }
-        if (results.length === 0) {
-          results = await convex.query(api.memoryRecords.search, {
-            query: args.query,
+/** Read-only memory access for workers, which act on preferences beyond the bounded profile. */
+export function createRecallTools(conversationId?: string): RuntimeTool[] {
+  return [recallTool(conversationId)];
+}
+
+function recallTool(conversationId?: string): RuntimeTool {
+  return defineRuntimeTool(
+    NAMESPACE,
+    "recall",
+    "Search your memories for anything relevant to the current turn. Call this early in any conversation that touches the user's preferences, projects, or past decisions.",
+    {
+      query: z.string().describe("Keywords or topic to search for."),
+      limit: z.number().optional().default(10),
+    },
+    async (args) => {
+      let results: any[] = [];
+      let mode: "vector" | "substring" = "substring";
+
+      if (embeddingsAvailable()) {
+        const queryVec = await embed(args.query);
+        if (queryVec) {
+          const hits = await convex.action(api.memoryRecords.vectorSearch, {
+            embedding: queryVec,
             limit: args.limit,
           });
+          results = hits.map((h) => h.record);
+          mode = "vector";
         }
-
-        for (const r of results) {
-          await convex.mutation(api.memoryRecords.markAccessed, { memoryId: r.memoryId });
-        }
-        await convex.mutation(api.memoryEvents.emit, {
-          eventType: "memory.recalled",
-          conversationId,
-          data: JSON.stringify({ query: args.query, hits: results.length, mode }),
+      }
+      if (results.length === 0) {
+        results = await convex.query(api.memoryRecords.search, {
+          query: args.query,
+          limit: args.limit,
         });
-        if (results.length === 0) {
-          return runtimeText("No memories matched.");
-        }
-        const body = results
-          .map(
-            (r) =>
-              `• [${r.tier}/${r.segment} importance=${r.importance.toFixed(2)}] ${r.memoryId}: ${r.content}`,
-          )
-          .join("\n");
-        return runtimeText(body);
-      },
-    ),
-  ];
+      }
+
+      for (const r of results) {
+        await convex.mutation(api.memoryRecords.markAccessed, { memoryId: r.memoryId });
+      }
+      await convex.mutation(api.memoryEvents.emit, {
+        eventType: "memory.recalled",
+        conversationId,
+        data: JSON.stringify({ query: args.query, hits: results.length, mode }),
+      });
+      if (results.length === 0) {
+        return runtimeText("No memories matched.");
+      }
+      const body = results
+        .map(
+          (r) =>
+            `• [${r.tier}/${r.segment} importance=${r.importance.toFixed(2)}] ${r.memoryId}: ${r.content}`,
+        )
+        .join("\n");
+      return runtimeText(body);
+    },
+  );
 }
 
 export function createMemoryMcp(conversationId: string) {

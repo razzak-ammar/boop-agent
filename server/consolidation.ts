@@ -1,6 +1,8 @@
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { broadcast } from "./broadcast.js";
+import { embed } from "./embeddings.js";
+import { startPersistentLoop } from "./persistent-loop.js";
 import { getRuntimeConfig, type RuntimeConfig } from "./runtime-config.js";
 import { runAgentRuntime } from "./runtimes/index.js";
 import { EMPTY_USAGE, type UsageTotals } from "./usage.js";
@@ -405,6 +407,8 @@ export async function runConsolidation(trigger = "scheduled"): Promise<{
             importance: keep.importance,
             decayRate: keep.decayRate,
             supersedes: p.absorb,
+            // Recall searches vectors, so the merged text needs its own.
+            embedding: (await embed(p.rewriteContent)) ?? undefined,
           });
           merged++;
           applied.push({
@@ -479,10 +483,5 @@ export async function runConsolidation(trigger = "scheduled"): Promise<{
 }
 
 export function startConsolidationLoop(intervalMs = 24 * 60 * 60 * 1000): () => void {
-  const timer = setInterval(() => {
-    runConsolidation("scheduled").catch((err) =>
-      console.error("[consolidation] loop error", err),
-    );
-  }, intervalMs);
-  return () => clearInterval(timer);
+  return startPersistentLoop("consolidation", intervalMs, () => runConsolidation("scheduled"));
 }

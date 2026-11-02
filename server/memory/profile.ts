@@ -11,7 +11,7 @@ export interface ProfileMemory {
 /** JSON quoting keeps stored text from impersonating prompt sections. */
 export function formatMemoryProfile(records: ProfileMemory[]): string {
   if (!records.length) return "";
-  let budget = 8000;
+  let budget = 12_000;
   const selected: ProfileMemory[] = [];
   for (const record of records) {
     const size = JSON.stringify(record).length;

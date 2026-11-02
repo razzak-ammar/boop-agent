@@ -124,16 +124,65 @@ export const getByIds = query({
   },
 });
 
+// Applies a reconcile decision in one transaction. Two writes of the same fact
+// can each name the other as a duplicate; whichever reconciles first wins and
+// the second finds no active candidate, so one copy always survives.
+export const reconcile = mutation({
+  args: {
+    memoryId: v.string(),
+    candidateIds: v.array(v.string()),
+    drop: v.boolean(),
+    replaces: v.array(v.string()),
+    content: v.optional(v.string()),
+    embedding: v.optional(v.array(v.float64())),
+  },
+  handler: async (ctx, args): Promise<"kept" | "dropped" | "replaced" | "missing"> => {
+    const find = (memoryId: string) =>
+      ctx.db.query("memoryRecords").withIndex("by_memory_id", q => q.eq("memoryId", memoryId)).unique();
+    const row = await find(args.memoryId);
+    if (!row || row.lifecycle !== "active") return "missing";
+    const candidates = (await Promise.all(args.candidateIds.filter(id => id !== args.memoryId).map(find)))
+      .filter((candidate): candidate is Doc<"memoryRecords"> => candidate?.lifecycle === "active");
+    if (args.drop) {
+      if (!candidates.length) return "kept";
+      await ctx.db.patch(row._id, { lifecycle: "archived" });
+      // Restating a fact means it still matters; carry the stronger retention.
+      const keep = candidates[0];
+      await ctx.db.patch(keep._id, {
+        importance: Math.max(keep.importance, row.importance),
+        tier: row.tier === "permanent" ? "permanent" : keep.tier,
+        decayRate: Math.min(keep.decayRate, row.decayRate),
+        lastAccessedAt: Date.now(),
+      });
+      return "dropped";
+    }
+    const replaced = candidates.filter(candidate => args.replaces.includes(candidate.memoryId));
+    if (!replaced.length) return "kept";
+    for (const candidate of replaced) await ctx.db.patch(candidate._id, { lifecycle: "archived" });
+    await ctx.db.patch(row._id, {
+      supersedes: [...new Set([...(row.supersedes ?? []), ...replaced.map(candidate => candidate.memoryId)])],
+      ...(args.content?.trim() ? { content: args.content.trim(), embedding: args.embedding ?? row.embedding } : {}),
+    });
+    return "replaced";
+  },
+});
+
+const PROFILE_SEGMENT_LIMITS = { identity: 15, preference: 40, correction: 25 } as const;
+
 // Segment indexes keep background context from crowding out stable preferences.
+// Rank by importance and use rather than recency so a burst of new memories
+// cannot push older standing preferences out of the always-loaded profile.
 export const profile = query({
   args: {},
   handler: async (ctx) => {
-    const groups = await Promise.all((["identity", "preference", "correction"] as const).map(segment =>
-      ctx.db.query("memoryRecords").withIndex("by_segment", q => q.eq("segment", segment))
-        .order("desc").take(300),
+    const groups = await Promise.all((Object.keys(PROFILE_SEGMENT_LIMITS) as Array<keyof typeof PROFILE_SEGMENT_LIMITS>).map(async segment =>
+      (await ctx.db.query("memoryRecords").withIndex("by_segment", q => q.eq("segment", segment)).order("desc").take(300))
+        .filter(row => row.lifecycle === "active" && !isDemoId(row.memoryId))
+        .sort((a, b) => b.importance - a.importance || b.accessCount - a.accessCount || b.createdAt - a.createdAt)
+        .slice(0, PROFILE_SEGMENT_LIMITS[segment]),
     ));
-    return groups.flatMap(rows => rows.filter(row => row.lifecycle === "active" && !isDemoId(row.memoryId)).slice(0, 15))
-      .sort((a, b) => b.createdAt - a.createdAt)
+    return groups.flat()
+      .sort((a, b) => b.importance - a.importance || b.accessCount - a.accessCount || b.createdAt - a.createdAt)
       .map(({ memoryId, content, segment, createdAt }) => ({ memoryId, content, segment, createdAt }));
   },
 });

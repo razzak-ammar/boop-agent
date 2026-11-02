@@ -4,7 +4,7 @@ Personal memory stores facts about the user, scoped preferences, relationships a
 
 ## Recall across turns
 
-Dispatcher turns and execution workers load a bounded active profile automatically. It considers the latest 300 records in each of identity, preference and correction, keeps up to 15 active non-demo records per segment, and includes up to 8,000 characters. Background context cannot crowd these segments out. Other relevant facts remain available through `recall`; the profile is not an exhaustive memory dump.
+Dispatcher turns and execution workers load a bounded active profile automatically. It considers the latest 300 records in each of identity, preference and correction, keeps up to 15 identity, 40 preference and 25 correction records ranked by importance and use (not recency), and includes up to 12,000 characters. Background context and bursts of new memories cannot crowd older standing preferences out. Other relevant facts remain available through `recall`, which execution workers can also call read-only before acting; the profile is not an exhaustive memory dump.
 
 Stored context is framed as data, with the current user message taking precedence. Preferences apply only within their saved scope. For example, “brief work updates” does not mean “brief explanations of every subject.”
 
@@ -14,7 +14,9 @@ Stored context is framed as data, with the current user message taking precedenc
 
 For “Actually, I prefer coffee instead of tea,” the agent recalls the old preference and saves the new fact with the old memory ID in `supersedes`. Archiving the old fact and storing its replacement occur in one mutation. A stale correction referencing an already-archived target is rejected rather than replacing the current belief. Unrelated details must be preserved.
 
-Foreground and automatic writes request exact-text deduplication, ignoring whitespace and case, across the latest 500 active records. The tool confirms the actual stored ID after reading it back. This handles duplicate writes of the same sentence; semantic paraphrases still depend on extraction/consolidation.
+Foreground and automatic writes request exact-text deduplication, ignoring whitespace and case, across the latest 500 active records. The tool confirms the actual stored ID after reading it back.
+
+Each new memory is then reconciled against active memories with embedding similarity of at least 0.80. Similarity alone cannot tell a paraphrase from a contradiction (both score above 0.9 with bge-large), so a model decides: drop the new memory as a duplicate, let it replace the facts it updates (optionally rewriting it to keep unaffected details), or keep both as distinct. The decision applies in one mutation, and concurrent writes of the same fact cannot drop each other. The dispatcher writes memory only for explicit remember requests, standing preferences and corrections; background extraction captures other details and is told what the dispatcher already saved that turn.
 
 ## Automatic extraction
 
@@ -29,5 +31,7 @@ At the user's request, `forget_memory` archives recalled IDs, removing them from
 ## Verification and rollout
 
 Regression coverage includes atomic replacement, preserving unrelated facts, stale correction rejection, duplicate writes, profile selection despite context volume, archive exclusion, evidence validation and bounded profile formatting. Tests run against local Convex simulation and mocked runtimes, without writing to the user's live memory.
+
+Cleanup (6 h) and consolidation (24 h) record their last start in Convex settings, so restarts no longer reset their schedules.
 
 Deploy the updated Convex functions before restarting the updated server: the profile query and new optional mutation arguments must exist first. There is no schema migration or automatic rewrite of historical memories. Historical conflicts are corrected when explicitly superseded or through existing consolidation.

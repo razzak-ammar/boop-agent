@@ -273,6 +273,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   const trackerTools = opts.kind !== "proactive" && integrations.includes("timetracker")
     ? createTimeTrackerTools(opts.conversationId, undefined, undefined, "direct") : [];
   const savedScheduleReceipts: string[] = [];
+  const savedMemories: string[] = [];
   let performedOtherWork = false;
   const tools = [
     ...trackerTools,
@@ -281,7 +282,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
       const messages = await convex.query(api.messages.recent, { conversationId: opts.conversationId, limit });
       return runtimeText(JSON.stringify(messages.map(message => ({ role: message.role, content: message.content, at: new Date(message.createdAt).toISOString() }))));
     }),
-    ...createMemoryTools(opts.conversationId),
+    ...createMemoryTools(opts.conversationId, { runtimeConfig, turnId, onWrite: content => savedMemories.push(content) }),
     ...createSavedTools(opts.conversationId, inboundImageStorageIds),
     ...createAutomationTools(opts.conversationId, opts.content, receipt => savedScheduleReceipts.push(receipt)),
     ...createDraftDecisionTools(opts.conversationId, runtimeConfig),
@@ -507,6 +508,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
       turnId,
       runtimeConfig,
       imageStorageIds: inboundImageStorageIds,
+      alreadySaved: savedMemories,
     }).catch((err) => console.error("[interaction] extraction error", err));
   }
 

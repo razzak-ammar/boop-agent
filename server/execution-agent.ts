@@ -16,6 +16,7 @@ import { getRuntimeConfig, type RuntimeConfig } from "./runtime-config.js";
 import { runAgentRuntime } from "./runtimes/index.js";
 import { buildPromptWithImages, fetchStoredBytes } from "./images/content-blocks.js";
 import { loadMemoryProfile } from "./memory/profile.js";
+import { createRecallTools } from "./memory/tools.js";
 
 const running = new Map<string, AbortController>();
 
@@ -105,6 +106,9 @@ Style:
 - Prefer markdown with **bold** keywords and • bullets.
 - Under 500 words unless explicitly asked for more.
 - If you can't complete something, say why in one sentence.
+
+Personal context:
+- The saved personal context below is bounded. Before acting for the user (calendar entries, messages, records), call recall for preferences that may govern the action, such as which calendar, invitation style, or wording. recall is read-only; report new facts in your answer instead of saving them.
 
 Safety:
 - A clear user request, passed in your assigned task, authorizes the matching action. Use the real integration tools to complete it. Do not add an approval step or prepare a draft unless the user asked for a draft/preview or to wait before sending.
@@ -207,8 +211,9 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
       : [];
   const mcpServers = integrationServers;
   const calendarTools = opts.integrations.includes("googlecalendar") ? createCalendarTools() : [];
-  const runtimeTools = [...draftTools, ...integrationTools, ...calendarTools];
-  const runtimeToolNamespaces = [...new Set([...integrationTools, ...calendarTools].map((tool) => tool.namespace))];
+  const recallTools = createRecallTools(opts.conversationId);
+  const runtimeTools = [...draftTools, ...integrationTools, ...calendarTools, ...recallTools];
+  const runtimeToolNamespaces = [...new Set([...integrationTools, ...calendarTools, ...recallTools].map((tool) => tool.namespace))];
   const allowedTools = [
     "WebSearch",
     "WebFetch",

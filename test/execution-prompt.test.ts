@@ -13,4 +13,11 @@ describe("worker capability context", () => {
     expect(buildExecutionPrompt(["apple", "browser"])).toContain("Apple data:");
     expect(buildExecutionPrompt(["apple", "browser"])).toContain("Local browser:");
   });
+  it("requires calendar searches to use compact sorted results and honest coverage", () => {
+    const prompt = buildExecutionPrompt(["googlecalendar"]);
+    expect(prompt).toContain("Use search_calendar_events");
+    expect(prompt).toContain('terms=["midterm","quiz"]');
+    expect(prompt).toContain("complete=false");
+    expect(buildExecutionPrompt([])).not.toContain("Calendar reads:");
+  });
 });

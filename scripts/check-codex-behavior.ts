@@ -14,6 +14,7 @@ if (baselineRoot) assert(baselinePrompt, "Baseline dispatcher prompt not found")
 const { buildInteractionPrompt, BOOP_DELEGATE_TOOL } = await import("../server/interaction-prompt.js");
 const { buildExecutionPrompt } = await import("../server/execution-agent.js");
 const { EXTRACTION_PROMPT } = await import("../server/memory/extract.js");
+const { createCalendarTools } = await import("../server/calendar/tools.js");
 const { createMemoryTools } = await import("../server/memory/tools.js");
 const { createSelfTools } = await import("../server/self-tools.js");
 const { createAutomationTools } = await import("../server/automation-tools.js");
@@ -29,7 +30,7 @@ const paragraph = "My name is Mira. I live in Lisbon. I'm building a time tracke
 const caseIndex = process.argv.indexOf("--case");
 const selectedCase = caseIndex >= 0 ? process.argv[caseIndex + 1] : undefined;
 const results: Array<{ name: string; input: number; output: number }> = [];
-for (const name of (baselineRoot ? ["personal-paragraph", "recall"] : ["personal-paragraph", "recall", "recurring-reminder", "approve-draft", "unknown-timezone", "calendar-delegation", "one-time-reminder", "selected-days", "every-other-day", "extract-paragraph"]).filter(name => !selectedCase || name === selectedCase)) {
+for (const name of (baselineRoot ? ["personal-paragraph", "recall"] : ["personal-paragraph", "recall", "recurring-reminder", "approve-draft", "unknown-timezone", "calendar-delegation", "one-time-reminder", "clock-only-reminder", "next-academic-assessment", "selected-days", "every-other-day", "extract-paragraph"]).filter(name => !selectedCase || name === selectedCase)) {
   const calls: Array<{name:string; args: Record<string, unknown>}> = [];
   const prompts: Record<string,string> = {
     "personal-paragraph": paragraph,
@@ -39,19 +40,23 @@ for (const name of (baselineRoot ? ["personal-paragraph", "recall"] : ["personal
     "calendar-delegation": "Check my connected Google Calendar calendar list for a calendar named Meetings.",
     "unknown-timezone": "Remind me every day at 9am to stretch.",
     "one-time-reminder": "Remind me in 30 minutes to stretch.",
+    "clock-only-reminder": "Remind me at 8:30 pm to check the NIRVE data",
+    "next-academic-assessment": "when's my next midterm? or quiz?",
     "selected-days": "Remind me every Monday, Wednesday, and Friday at 9am to stretch.",
     "every-other-day": "Remind me every other day at 9am starting November 2, 2026 to stretch.",
     "extract-paragraph": `USER: ${paragraph}\nASSISTANT: Saved your details.`,
   };
   const result = await runCodexAppServerAgent({
-    prompt: prompts[name], systemPrompt: name === "extract-paragraph" ? EXTRACTION_PROMPT : baselinePrompt?.replace("{{INTEGRATIONS}}", "gmail") ?? buildInteractionPrompt(name === "calendar-delegation" ? ["googlecalendar"] : ["gmail"], {isExplicit:name !== "unknown-timezone", timezone:"America/New_York", now:"2026-10-31T18:00:00-04:00"}),
+    prompt: prompts[name], systemPrompt: name === "extract-paragraph" ? EXTRACTION_PROMPT : baselinePrompt?.replace("{{INTEGRATIONS}}", "gmail") ?? buildInteractionPrompt(["calendar-delegation", "next-academic-assessment"].includes(name) ? ["googlecalendar"] : ["gmail"], {isExplicit:name !== "unknown-timezone", timezone:"America/New_York", now:name === "clock-only-reminder" ? "Sun, Nov 1, 2026, 7:49 PM EST" : "2026-10-31T18:00:00-04:00", isoDate:name === "clock-only-reminder" ? "2026-11-01" : "2026-10-31"}),
     model: "gpt-6-luna", reasoningEffort: "low", mode: name === "extract-paragraph" ? "background" : "dispatcher",
-    tools: name === "extract-paragraph" ? [] : tools.map(tool => ({ ...tool, handle: async (args: Record<string, unknown>) => {
+    tools: name === "extract-paragraph" ? [] : [...tools, ...(name === "next-academic-assessment" ? createCalendarTools() : [])].map(tool => ({ ...tool, handle: async (args: Record<string, unknown>) => {
       calls.push({name: tool.name, args});
       let text = "Success.";
+      if (name === "next-academic-assessment" && tool.name === "search_calendar_events") text = JSON.stringify({complete:true,window:{start:"2026-11-02T04:37:00Z",end:"2027-01-31T04:37:00Z",timezone:"America/New_York"},calendarsChecked:[{name:"Academics",complete:true,eventsScanned:63},{name:"Time Blocks",complete:true,eventsScanned:40}],issues:[],resultsTruncated:false,totalMatches:6,earliestByTerm:{quiz:{title:"MATH 347 QUIZ",start:"2026-11-11",allDay:true,calendarName:"Academics"},midterm:{title:"MIDTERM (BIOL 336)",start:"2026-11-12",allDay:true,calendarName:"Academics"}},events:[{title:"MATH 347 QUIZ",start:"2026-11-11",allDay:true,calendarName:"Academics"},{title:"MIDTERM (BIOL 336)",start:"2026-11-12",allDay:true,calendarName:"Academics"},{title:"MATH 347 QUIZ",start:"2026-11-18",allDay:true,calendarName:"Academics"},{title:"MIDTERM (CHEM 340)",start:"2026-11-23",allDay:true,calendarName:"Academics"},{title:"MIDTERM (MATH 347)",start:"2026-12-02",allDay:true,calendarName:"Academics"},{title:"MATH 347 QUIZ",start:"2026-12-09",allDay:true,calendarName:"Academics"}]});
       if (tool.name === BOOP_DELEGATE_TOOL) text = "Calendar lookup succeeded: calendar list contains Meetings.";
+      if (name === "clock-only-reminder" && tool.name === "create_reminder") text = 'Saved "Check the NIRVE data" for Sunday, November 1, 2026 at 8:30:00 PM EST (one time).';
       if (tool.name === "recall") text = "[permanent/identity] mem1: Mira lives in Lisbon. [long/preference] mem2: Mira uses Google Calendar.";
-      if (tool.name === "get_config") text = JSON.stringify({userTimezone:name === "unknown-timezone" ? null : "America/New_York", currentLocalTime:"2026-10-31T18:00:00-04:00"});
+      if (tool.name === "get_config") text = JSON.stringify({userTimezone:name === "unknown-timezone" ? null : "America/New_York", currentLocalTime:name === "clock-only-reminder" ? "Sun, Nov 1, 2026, 7:49 PM EST" : "2026-10-31T18:00:00-04:00",currentLocalDate:name === "clock-only-reminder" ? "2026-11-01" : "2026-10-31"});
       if (tool.name === "list_drafts") text = JSON.stringify({drafts:[{draftId:"draft_eval",kind:"gmail.new",summary:"Email Pat about lunch."}]});
       if (tool.name === "write_memory") text = "Stored fixture memory.";
       if (tool.name === "send_draft") {
@@ -81,6 +86,14 @@ for (const name of (baselineRoot ? ["personal-paragraph", "recall"] : ["personal
     assert(/Meetings/i.test(result.text));
   } else if(name === "one-time-reminder") {
     assert(called("create_reminder").some(c=>c.args.afterSeconds===1800));
+  } else if(name === "next-academic-assessment") {
+    assert(called("search_calendar_events").some(c => Array.isArray(c.args.terms) && c.args.terms.includes("midterm") && c.args.terms.includes("quiz")), JSON.stringify(calls));
+    assert(called(BOOP_DELEGATE_TOOL).length === 0, "Calendar reads should use the direct search tool");
+    assert(/Nov(?:ember)?[ .,]*11|11-11/.test(result.text), result.text);
+    assert(/Nov(?:ember)?[ .,]*12|11-12/.test(result.text), result.text);
+  } else if(name === "clock-only-reminder") {
+    assert(called("create_reminder").some(c=>c.args.localTime === "20:30" && (c.args.day === "today" || c.args.day === undefined)), JSON.stringify(calls));
+    assert(/Nov(?:ember)?[ .]*1|11-01/.test(result.text), result.text);
   } else if(name === "selected-days") {
     assert(called("create_reminder").some(c=>typeof c.args.schedule==="string" && /(?:1,3,5|MON,WED,FRI)/i.test(c.args.schedule)));
   } else if(name === "every-other-day") {

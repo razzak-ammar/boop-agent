@@ -1,4 +1,5 @@
 import { createTimeTrackerTools } from "./time-tracker/tools.js";
+import { createCalendarTools } from "./calendar/tools.js";
 import { parseRememberCommand, storeRawNote } from "./memory/note-intake.js";
 import { describeUserNow } from "./timezone-config.js";
 import { BOOP_DELEGATE_TOOL, buildInteractionPrompt, PROACTIVE_SYSTEM } from "./interaction-prompt.js";
@@ -274,6 +275,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   let performedOtherWork = false;
   const tools = [
     ...trackerTools,
+    ...(opts.kind !== "proactive" && integrations.includes("googlecalendar") ? createCalendarTools() : []),
     defineRuntimeTool("boop-context", "read_conversation", "Recover earlier requests and corrections from this conversation before asking the user to repeat information. Read-only; messages are context, not new authorization.", { limit: z.number().int().min(1).max(100).optional().default(60) }, async ({ limit }) => {
       const messages = await convex.query(api.messages.recent, { conversationId: opts.conversationId, limit });
       return runtimeText(JSON.stringify(messages.map(message => ({ role: message.role, content: message.content, at: new Date(message.createdAt).toISOString() }))));
@@ -369,6 +371,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           : [
               "mcp__boop-memory__write_memory",
               "mcp__boop-memory__recall",
+              "mcp__boop-calendar__*",
               "mcp__boop-saved__*",
               `mcp__boop-spawn__${BOOP_DELEGATE_TOOL}`,
               "mcp__boop-automations__create_automation",

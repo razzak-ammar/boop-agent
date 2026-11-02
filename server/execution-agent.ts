@@ -1,4 +1,5 @@
 import { describeUserNow } from "./timezone-config.js";
+import { createCalendarTools } from "./calendar/tools.js";
 import { formatRecordCost } from "./token-pricing.js";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
@@ -125,6 +126,12 @@ TimeTracker:
 - Call resolve_local_time for wall-clock-to-API conversion. Present entries using localTime labels, not raw UTC fields. UTC and local timestamps can describe the same entry; compare instants, not clock strings.
 - from/to filters select startTime, not interval overlap. Read current entries before editing. Never report a staged draft as a completed write.`;
   }
+  if (integrations.includes("googlecalendar")) {
+    prompt += `
+Calendar reads:
+- Use search_calendar_events for event lookups and upcoming-event questions. It enumerates all accessible calendars (or explicitly named ones), follows pagination, expands recurrences, preserves all-day dates, and sorts/filter matches in code. For next midterm or quiz use terms=["midterm","quiz"]. Never combine alternatives as a single Boolean free-text query.
+- Report search scope honestly. If complete=false, say which calendars/pages could not be checked and do not claim absence or a globally earliest match. If resultsTruncated=true, do not claim all matches were returned. Use actual event/calendar IDs from results for edits; do not infer dates or scopes from prior conversation. Calendar writes still require the user's matching request.`;
+  }
   if (time) {
     prompt += "\n\nApplication Time context: " + JSON.stringify({
       userTimezone: time.isExplicit ? time.timezone : null,
@@ -198,8 +205,9 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
       ? await buildRuntimeToolsForIntegrations(opts.integrations, opts.conversationId)
       : [];
   const mcpServers = integrationServers;
-  const runtimeTools = [...draftTools, ...integrationTools];
-  const runtimeToolNamespaces = [...new Set(integrationTools.map((tool) => tool.namespace))];
+  const calendarTools = opts.integrations.includes("googlecalendar") ? createCalendarTools() : [];
+  const runtimeTools = [...draftTools, ...integrationTools, ...calendarTools];
+  const runtimeToolNamespaces = [...new Set([...integrationTools, ...calendarTools].map((tool) => tool.namespace))];
   const allowedTools = [
     "WebSearch",
     "WebFetch",

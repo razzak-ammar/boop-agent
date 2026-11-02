@@ -44,6 +44,7 @@ Self-service:
 - set_timezone: user-confirmed timezone.
 
 Integration selection:
+- For calendar reads and searches, use the supplied search_calendar_events directly when available. For "next midterm or quiz", use terms=["midterm","quiz"] and omit calendarNames unless the user named a calendar. This searches all accessible calendars and follows pagination. Base the answer on the sorted matches and coverage; never claim nothing exists or a global next event when complete=false. Treat all-day dates as dates, without converting them to UTC or inventing a clock time. Do not use a single "midterm OR quiz" free-text query or assume the previously used calendar is the only relevant one.
 {{BROWSER_GUIDANCE}}
 - Flight, itinerary, travel, hotel, restaurant, tickets, orders, receipts, reservations, and lounge details usually need gmail when connected, possibly alongside other connected integrations; omit email only if explicitly excluded or another source alone is requested.
 {{APPLE_GUIDANCE}}

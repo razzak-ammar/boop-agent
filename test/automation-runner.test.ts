@@ -19,7 +19,7 @@ import { sendConversationNotification } from "../server/notifications.js";
 import { tickAutomations } from "../server/automations.js";
 const reminder = {
   automationId: "auto_test",
-  name: "Laundry",
+  name: "Take laundry out",
   task: "Take laundry out",
   integrations: [],
   schedule: "once",
@@ -53,7 +53,7 @@ describe("reminder execution", () => {
     await Promise.all([tickAutomations(), tickAutomations()]);
     expect(sendConversationNotification).toHaveBeenCalledExactlyOnceWith(
       "telegram:fixture",
-      "[Laundry]\n\nTake laundry out",
+      "Reminder: Take laundry out",
     );
     expect(spawnExecutionAgent).not.toHaveBeenCalled();
     const finish = vi

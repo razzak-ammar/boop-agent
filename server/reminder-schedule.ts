@@ -12,9 +12,45 @@ export interface ScheduleFields {
 export interface ScheduleInput {
   schedule?: string;
   at?: string;
+  localTime?: string;
+  day?: string;
   afterSeconds?: number;
   everySeconds?: number;
   everyDays?: number;
+}
+
+/** Resolve clock-only reminders against the user's calendar, never UTC's date. */
+export function resolveReminderClock(clock: string, day: string, timezone: string, now = Date.now()): string {
+  if (!/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(clock)) {
+    throw new Error("Use localTime HH:mm[:ss] in 24-hour time.");
+  }
+  const today = localStamp(now, timezone).slice(0, 10);
+  let date = day;
+  if (day === "today") date = today;
+  if (day === "tomorrow") {
+    const next = new Date(`${today}T12:00:00Z`);
+    next.setUTCDate(next.getUTCDate() + 1);
+    date = next.toISOString().slice(0, 10);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Use day=today, tomorrow, or YYYY-MM-DD.");
+  return `${date}T${clock}`;
+}
+
+/** Narrow guard for an unambiguous clock-only request. Leave all other natural
+ * language to the dispatcher; never silently reinterpret an explicit date. */
+export function assertRequestedReminderTime(request: string, fields: ScheduleFields, timezone: string, now = Date.now()): void {
+  if (fields.scheduleKind !== "once" || fields.nextRunAt === undefined) return;
+  const match = /^\s*(?:please\s+)?remind me\s+(?:(today|tonight|tomorrow)\s+)?at\s+(\d{1,2})(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)\s*(today|tonight|tomorrow)?\s+to\b/i.exec(request);
+  if (!match) return;
+  const hour = Number(match[2]);
+  if (hour < 1 || hour > 12 || (match[1] && match[5] && match[1].toLowerCase() !== match[5].toLowerCase())) return;
+  const meridiem = match[4].replaceAll(".", "").toLowerCase();
+  const clock = `${String(hour % 12 + (meridiem === "pm" ? 12 : 0)).padStart(2, "0")}:${match[3] ?? "00"}`;
+  const requestedDay = (match[1] ?? match[5] ?? "today").toLowerCase();
+  const expected = resolveReminderClock(clock, requestedDay === "tonight" ? "today" : requestedDay, timezone, now);
+  if (localStamp(fields.nextRunAt, timezone).slice(0, 16) !== expected) {
+    throw new Error(`The saved time conflicts with the user's request. Use localTime="${clock}" and day="${requestedDay === "tonight" ? "today" : requestedDay}" in ${timezone}. Do not claim success or move it to another day.`);
+  }
 }
 function localStamp(at: number, timezone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -147,6 +183,13 @@ export function buildSchedule(
   timezone: string | null,
   now = Date.now(),
 ): ScheduleFields {
+  if (input.localTime !== undefined) {
+    if (input.at !== undefined) throw new Error("Choose localTime with day OR at, not both.");
+    if (!timezone) throw new Error("Ask the user for their timezone before local clock reminders.");
+    return buildSchedule({ ...input, localTime: undefined, day: undefined,
+      at: resolveReminderClock(input.localTime, input.day ?? "today", timezone, now) }, timezone, now);
+  }
+  if (input.day !== undefined) throw new Error("day requires localTime.");
   const modes = [
     input.schedule !== undefined,
     input.afterSeconds !== undefined,

@@ -75,7 +75,9 @@ async function runAutomation(automationId: string): Promise<void> {
     )
       throw new Error("Reminder paused, removed, or execution lease lost.");
     if (a.notifyConversationId && result) {
-      const text = redactPhoneNumbers(`[${a.name}]\n\n${result}`);
+      const text = redactPhoneNumbers(a.delivery === "reminder"
+        ? `Reminder: ${result}`
+        : `[${a.name}]\n\n${result}`);
       await sendConversationNotification(a.notifyConversationId, text);
       await convex.mutation(api.messages.send, {
         conversationId: a.notifyConversationId,

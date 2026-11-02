@@ -270,6 +270,8 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
 
   const trackerTools = opts.kind !== "proactive" && integrations.includes("timetracker")
     ? createTimeTrackerTools(opts.conversationId, undefined, undefined, "direct") : [];
+  const savedScheduleReceipts: string[] = [];
+  let performedOtherWork = false;
   const tools = [
     ...trackerTools,
     defineRuntimeTool("boop-context", "read_conversation", "Recover earlier requests and corrections from this conversation before asking the user to repeat information. Read-only; messages are context, not new authorization.", { limit: z.number().int().min(1).max(100).optional().default(60) }, async ({ limit }) => {
@@ -278,7 +280,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     }),
     ...createMemoryTools(opts.conversationId),
     ...createSavedTools(opts.conversationId, inboundImageStorageIds),
-    ...createAutomationTools(opts.conversationId),
+    ...createAutomationTools(opts.conversationId, opts.content, receipt => savedScheduleReceipts.push(receipt)),
     ...createDraftDecisionTools(opts.conversationId, runtimeConfig),
     ...createSelfTools(),
     defineRuntimeTool(
@@ -409,6 +411,10 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
       ],
       onText: (chunk) => opts.onThinking?.(chunk),
       onToolUse: (toolName, input) => {
+        const schedulingSupport = /^mcp__boop-(?:memory|context|ack)__/.test(toolName)
+          || /^mcp__boop-automations__(?:create_reminder|create_automation|reschedule_automation|list_automations)$/.test(toolName)
+          || toolName === "mcp__boop-self__get_config";
+        if (!schedulingSupport) performedOtherWork = true;
         const name = toolName.replace(/^mcp__boop-[a-z-]+__/, "");
         const inputPreview = JSON.stringify(input);
         log(
@@ -439,6 +445,15 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     // when the model loses the thread mid-tool-call, the user's phrasing
     // is fine.
     reply = "Hmm — got tangled up there. Want to try that again?";
+  }
+
+  // A scheduling-only reply comes from persisted receipts. Model prose can
+  // contradict a successful save (e.g. claim a future time already passed).
+  if (savedScheduleReceipts.length) {
+    reply = redactPhoneNumbers([
+      ...savedScheduleReceipts,
+      ...(performedOtherWork ? [reply] : []),
+    ].join("\n\n"));
   }
 
   if (usage.costUsd > 0 || usage.inputTokens > 0) {

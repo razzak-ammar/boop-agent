@@ -34,6 +34,14 @@ The dashboard shows one-time versus recurring schedules, full next dates,
 completion, and delivery failures. Completed one-time reminders cannot be
 accidentally re-enabled by a toggle; reschedule them for a new future time.
 
+Clock-only reminders use `localTime` (24-hour HH:mm) plus `day` (`today`,
+`tomorrow`, or YYYY-MM-DD), resolved by the application in the saved timezone.
+This prevents UTC already being tomorrow from shifting an evening reminder to
+the next local day. A narrow guard rejects a conflicting timestamp for an
+unambiguous “remind me at 8:30 pm to …” request. Past times are rejected rather
+than silently moved to tomorrow. Replies include an application-generated
+receipt with the actual saved weekday, calendar date, time, and timezone.
+
 ## Durability and delivery
 
 Convex stores schedules, due timestamps, run history, and expiring execution

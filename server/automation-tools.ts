@@ -2,13 +2,15 @@ import { z } from "zod";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { availableIntegrations } from "./execution-agent.js";
-import { buildSchedule } from "./reminder-schedule.js";
+import { assertRequestedReminderTime, buildSchedule } from "./reminder-schedule.js";
 import { describeUserNow } from "./timezone-config.js";
 import { createClaudeMcpServer } from "./runtimes/claude.js";
 import { defineRuntimeTool } from "./runtimes/tool.js";
 import { runtimeText, type RuntimeTool } from "./runtimes/types.js";
 const NAMESPACE = "boop-automations";
 const scheduleShape = {
+  localTime: z.string().optional().describe('Local clock HH:mm[:ss] in 24-hour time. PREFERRED for "at 8:30pm", "tonight", "today", or "tomorrow": send localTime="20:30" and day="today" (or "tomorrow"). The application resolves the calendar date.'),
+  day: z.string().optional().describe('With localTime: "today" (default), "tomorrow", or exact YYYY-MM-DD. Never substitute the UTC/server calendar date for today.'),
   schedule: z
     .string()
     .optional()
@@ -48,13 +50,16 @@ const scheduleShape = {
     ),
 };
 const scheduleHelp =
-  "Choose exactly one: at (once), afterSeconds (once), schedule (cron), everySeconds (elapsed interval), or everyDays (calendar interval). Intervals may additionally specify at. Ask for a timezone before local wall-clock schedules if unset; relative delays need none. Never invent a time when the user has not specified one.";
+  "Choose exactly one: localTime + day (once, preferred for clock-only requests), at (exact date), afterSeconds (once), schedule (cron), everySeconds (elapsed interval), or everyDays (calendar interval). Intervals may additionally specify at or localTime + day. Ask for a timezone before local wall-clock schedules if unset; relative delays need none. A passed time must not silently move to tomorrow; ask the user. Never invent a time when the user has not specified one.";
 function id() {
   return `auto_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
-async function scheduled(input: Parameters<typeof buildSchedule>[0]) {
+async function scheduled(input: Parameters<typeof buildSchedule>[0], requestText: string) {
   const tz = await describeUserNow();
-  return buildSchedule(input, tz.isExplicit ? tz.timezone : null);
+  const now = Date.now();
+  const fields = buildSchedule(input, tz.isExplicit ? tz.timezone : null, now);
+  if (tz.isExplicit) assertRequestedReminderTime(requestText, fields, tz.timezone, now);
+  return fields;
 }
 function confirmation(
   automationId: string,
@@ -68,7 +73,16 @@ function confirmation(
   }).format(fields.nextRunAt!);
   return `Saved ${automationId} "${name}". ${fields.scheduleKind === "once" ? "One time only" : "Recurring"}; next: ${when}. Schedule: ${fields.schedule}.`;
 }
-export function createAutomationTools(conversationId: string): RuntimeTool[] {
+function scheduleReceipt(name: string, fields: ReturnType<typeof buildSchedule>): string {
+  const when = new Intl.DateTimeFormat("en-US", {
+    timeZone: fields.timezone ?? "UTC",
+    weekday: "short", year: "numeric", month: "short", day: "numeric",
+    hour: "numeric", minute: "2-digit", timeZoneName: "short",
+  }).format(fields.nextRunAt!);
+  return `Saved "${name}" for ${when}${fields.scheduleKind === "once" ? "" : " (recurring)"}.`;
+}
+
+export function createAutomationTools(conversationId: string, requestText = "", onScheduled?: (receipt: string) => void): RuntimeTool[] {
   return [
     defineRuntimeTool(
       NAMESPACE,
@@ -88,7 +102,7 @@ export function createAutomationTools(conversationId: string): RuntimeTool[] {
       },
       async (args) => {
         try {
-          const fields = await scheduled(args);
+          const fields = await scheduled(args, requestText);
           const automationId = id();
           const name = args.name?.trim() || args.message.slice(0, 64);
           await convex.mutation(api.automations.create, {
@@ -102,6 +116,7 @@ export function createAutomationTools(conversationId: string): RuntimeTool[] {
             conversationId,
             notifyConversationId: conversationId,
           });
+          onScheduled?.(scheduleReceipt(name, fields));
           return runtimeText(confirmation(automationId, name, fields));
         } catch (err) {
           return runtimeText(String(err), false);
@@ -121,7 +136,7 @@ export function createAutomationTools(conversationId: string): RuntimeTool[] {
       },
       async (args) => {
         try {
-          const fields = await scheduled(args);
+          const fields = await scheduled(args, requestText);
           const automationId = id();
           await convex.mutation(api.automations.create, {
             automationId,
@@ -133,6 +148,7 @@ export function createAutomationTools(conversationId: string): RuntimeTool[] {
             conversationId,
             notifyConversationId: args.notify ? conversationId : undefined,
           });
+          onScheduled?.(scheduleReceipt(args.name, fields));
           return runtimeText(confirmation(automationId, args.name, fields));
         } catch (err) {
           return runtimeText(String(err), false);
@@ -175,7 +191,7 @@ export function createAutomationTools(conversationId: string): RuntimeTool[] {
       { automationId: z.string(), ...scheduleShape },
       async (args) => {
         try {
-          const fields = await scheduled(args);
+          const fields = await scheduled(args, requestText);
           const saved = await convex.mutation(api.automations.reschedule, {
             automationId: args.automationId,
             conversationId,
@@ -183,6 +199,7 @@ export function createAutomationTools(conversationId: string): RuntimeTool[] {
             scheduleKind: fields.scheduleKind!,
             nextRunAt: fields.nextRunAt!,
           });
+          if (saved) onScheduled?.(scheduleReceipt("Rescheduled reminder", fields));
           return runtimeText(
             saved
               ? confirmation(args.automationId, "rescheduled", fields)

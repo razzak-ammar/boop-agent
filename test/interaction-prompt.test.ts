@@ -7,6 +7,12 @@ describe("trusted time context", () => {
     expect(prompt).toContain('"currentLocalTime":"Oct 31, 2026, 6:00 PM"');
     expect(prompt).toContain('Available integrations: gmail');
   });
+  it("anchors clock-only reminders to the application date rather than UTC", () => {
+    const prompt = buildInteractionPrompt([], {isExplicit:true,timezone:"America/New_York",now:"Sun, Nov 1, 2026, 7:49 PM EST",isoDate:"2026-11-01"});
+    expect(prompt).toContain('"currentLocalDate":"2026-11-01"');
+    expect(prompt).toContain('day="today"');
+    expect(prompt).toContain("Echo the saved weekday, calendar date, time, and timezone");
+  });
   it("does not expose the server fallback as the user's clock", () => {
     const prompt = buildInteractionPrompt([], {isExplicit:false,timezone:"UTC",now:"server-clock"});
     expect(prompt).toContain('"userTimezone":null,"currentLocalTime":null');

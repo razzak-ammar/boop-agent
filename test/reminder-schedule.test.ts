@@ -3,9 +3,33 @@ import {
   buildSchedule,
   followingRun,
   parseReminderTime,
+  assertRequestedReminderTime,
 } from "../server/reminder-schedule.js";
 const now = Date.parse("2026-10-31T16:00:00Z");
 describe("reminder schedules", () => {
+  it("resolves tonight using the user's date when UTC is already tomorrow", () => {
+    const evening = Date.parse("2026-11-02T00:49:59Z");
+    const fields = buildSchedule({ localTime: "20:30", day: "today" }, "America/New_York", evening);
+    expect(fields.nextRunAt).toBe(Date.parse("2026-11-02T01:30:00Z"));
+    expect(() => assertRequestedReminderTime("Remind me at 8:30 pm to check the NIRVE data", fields, "America/New_York", evening)).not.toThrow();
+    const wrongDay = buildSchedule({ at: "2026-11-02T20:30:00" }, "America/New_York", evening);
+    expect(() => assertRequestedReminderTime("Remind me at 8:30 pm to check the NIRVE data", wrongDay, "America/New_York", evening)).toThrow(/conflicts/);
+  });
+  it("preserves explicit tomorrow requests and refuses to roll a past clock to tomorrow", () => {
+    const evening = Date.parse("2026-11-02T00:49:59Z");
+    const tomorrow = buildSchedule({ localTime: "20:30", day: "tomorrow" }, "America/New_York", evening);
+    expect(tomorrow.nextRunAt).toBe(Date.parse("2026-11-03T01:30:00Z"));
+    expect(() => assertRequestedReminderTime("Remind me tomorrow at 8:30 pm to check the data", tomorrow, "America/New_York", evening)).not.toThrow();
+    expect(() => buildSchedule({ localTime: "18:30" }, "America/New_York", evening)).toThrow(/future/);
+    expect(() => buildSchedule({ localTime: "20:30", at: "2026-11-02T20:30" }, "America/New_York", evening)).toThrow(/not both/);
+    expect(() => buildSchedule({ day: "today", afterSeconds: 60 }, "America/New_York", evening)).toThrow(/requires localTime/);
+  });
+  it("resolves local tomorrow across year boundaries and validates clock values", () => {
+    const evening = Date.parse("2027-01-01T01:00:00Z");
+    expect(buildSchedule({ localTime: "09:00", day: "tomorrow" }, "America/New_York", evening).nextRunAt).toBe(Date.parse("2027-01-01T14:00:00Z"));
+    for (const localTime of ["24:00", "12:60", "8:30 PM"]) expect(() => buildSchedule({ localTime }, "America/New_York", evening)).toThrow(/24-hour/);
+    expect(() => buildSchedule({ localTime: "09:00" }, null, evening)).toThrow(/timezone/);
+  });
   it("supports relative one-time reminders without a timezone", () => {
     const s = buildSchedule({ afterSeconds: 1800 }, null, now);
     expect(s.scheduleKind).toBe("once");

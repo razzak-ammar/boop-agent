@@ -15,6 +15,7 @@ import { EMPTY_USAGE, type UsageTotals } from "./usage.js";
 import { getRuntimeConfig, type RuntimeConfig } from "./runtime-config.js";
 import { runAgentRuntime } from "./runtimes/index.js";
 import { buildPromptWithImages, fetchStoredBytes } from "./images/content-blocks.js";
+import { loadMemoryProfile } from "./memory/profile.js";
 
 const running = new Map<string, AbortController>();
 
@@ -230,7 +231,7 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
     });
     const result = await runAgentRuntime(runtimeConfig, {
       prompt: executionPrompt,
-      systemPrompt: buildExecutionPrompt(opts.integrations, await describeUserNow()),
+      systemPrompt: buildExecutionPrompt(opts.integrations, await describeUserNow()) + await loadMemoryProfile(),
       claudeMcpServers: mcpServers,
       tools: runtimeTools,
       allowedTools,

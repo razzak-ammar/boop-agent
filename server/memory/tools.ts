@@ -13,6 +13,7 @@ const tierEnum = z.enum(["short", "long", "permanent"]);
 const segmentEnum = z.enum([
   "identity",
   "preference",
+  "correction",
   "relationship",
   "project",
   "knowledge",
@@ -24,11 +25,11 @@ export function createMemoryTools(conversationId: string): RuntimeTool[] {
     defineRuntimeTool(
       NAMESPACE,
       "write_memory",
-      "Persist a fact about the user or conversation that you want available in future turns. Prefer aggressive writing — memory is cheap, forgetting is expensive. Only use for durable facts (preferences, identity, projects, relationships), NOT for transient conversational state.",
+      "Persist an explicitly supplied durable personal fact or scoped standing preference. Do not infer a standing preference from a one-time request, tool error, or assistant claim. Recall existing facts first when correcting them; supersede only the conflicting memory IDs, preserving unrelated details. Never claim success until this tool succeeds.",
       {
         content: z.string().describe("The fact to remember, in one clear sentence."),
         segment: segmentEnum.describe(
-          "identity: core facts about who they are. preference: how they like things done. relationship: people they know. project: ongoing work. knowledge: facts about their world. context: current situation.",
+          "identity: core facts about who they are. preference: scoped standing defaults. correction: explicitly corrected durable personal facts/preferences. relationship: people they know. project: ongoing work. knowledge: facts about their world. context: current situation.",
         ),
         importance: z.number().min(0).max(1).describe("0-1; how critical to retain."),
         tier: tierEnum.optional().describe("Override; defaults by segment."),
@@ -41,7 +42,7 @@ export function createMemoryTools(conversationId: string): RuntimeTool[] {
         const tier = args.tier ?? SEGMENT_PREFERRED_TIER[args.segment];
         const memoryId = makeMemoryId();
         const embedding = (await embed(args.content)) ?? undefined;
-        await convex.mutation(api.memoryRecords.upsert, {
+        const id = await convex.mutation(api.memoryRecords.upsert, {
           memoryId,
           content: args.content,
           tier,
@@ -50,14 +51,34 @@ export function createMemoryTools(conversationId: string): RuntimeTool[] {
           decayRate: DEFAULT_DECAY[tier],
           supersedes: args.supersedes,
           embedding,
+          deduplicate: true,
+          requireActiveSupersedes: true,
         });
+        const [stored] = await convex.query(api.memoryRecords.getByIds, { ids: [id] });
+        if (!stored) throw new Error("Stored memory could not be read back.");
         await convex.mutation(api.memoryEvents.emit, {
           eventType: "memory.written",
           conversationId,
-          memoryId,
+          memoryId: stored.memoryId,
           data: JSON.stringify({ tier, segment: args.segment, importance: args.importance }),
         });
-        return runtimeText(`Stored ${memoryId} (tier=${tier}, segment=${args.segment}).`);
+        return runtimeText(`Stored ${stored.memoryId} (tier=${stored.tier}, segment=${stored.segment}).`);
+      },
+    ),
+
+    defineRuntimeTool(
+      NAMESPACE,
+      "forget_memory",
+      "Remove a personal memory from active recall at the user's request. Recall first to obtain exact IDs. This archives the memory; it is not permanent erasure of chat history or backups. Do not use this to delete saved notes or collections.",
+      { memoryIds: z.array(z.string()).min(1).max(20) },
+      async ({ memoryIds }) => {
+        let archived = 0;
+        for (const memoryId of new Set(memoryIds)) {
+          const id = await convex.mutation(api.memoryRecords.setLifecycle, { memoryId, lifecycle: "archived" });
+          if (id) archived++;
+        }
+        await convex.mutation(api.memoryEvents.emit, { eventType: "memory.forgotten", conversationId, data: JSON.stringify({ memoryIds, archived }) });
+        return runtimeText(`Archived ${archived} personal memories from active recall.`);
       },
     ),
 

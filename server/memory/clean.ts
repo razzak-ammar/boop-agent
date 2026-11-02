@@ -56,7 +56,8 @@ export async function cleanMemories(): Promise<{
   let pruned = 0;
 
   for (const mem of active) {
-    if (mem.tier === "permanent") continue;
+    // Includes legacy preferences saved before their default tier was permanent.
+    if (mem.tier === "permanent" || mem.segment === "preference" || mem.segment === "correction") continue;
     const score = effectiveScore(mem);
     if (score < PRUNE_THRESHOLD) {
       await convex.mutation(api.memoryRecords.setLifecycle, {

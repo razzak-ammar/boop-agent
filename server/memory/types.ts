@@ -36,9 +36,9 @@ export interface SegmentDefault {
 
 export const SEGMENT_DEFAULTS: Record<MemorySegment, SegmentDefault> = {
   identity: { tier: "permanent", importance: 0.85, decayRate: 0.01 },
-  correction: { tier: "long", importance: 0.80, decayRate: 0.015 },
+  correction: { tier: "permanent", importance: 0.80, decayRate: 0 },
   relationship: { tier: "long", importance: 0.75, decayRate: 0.02 },
-  preference: { tier: "long", importance: 0.70, decayRate: 0.02 },
+  preference: { tier: "permanent", importance: 0.70, decayRate: 0 },
   project: { tier: "long", importance: 0.65, decayRate: 0.025 },
   knowledge: { tier: "long", importance: 0.60, decayRate: 0.03 },
   context: { tier: "short", importance: 0.40, decayRate: 0.08 },

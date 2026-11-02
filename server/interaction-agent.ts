@@ -11,6 +11,7 @@ import { convex } from "./convex-client.js";
 import { createSavedTools } from "./saved/tools.js";
 import { createMemoryTools } from "./memory/tools.js";
 import { extractAndStore } from "./memory/extract.js";
+import { loadMemoryProfile } from "./memory/profile.js";
 import { spawnExecutionAgent } from "./execution-agent.js";
 import { listEnabledIntegrations } from "./integrations/registry.js";
 import { createAutomationTools } from "./automation-tools.js";
@@ -156,7 +157,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
 
   const systemPrompt = opts.kind === "proactive"
     ? PROACTIVE_SYSTEM
-    : buildInteractionPrompt(integrations, await describeUserNow());
+    : buildInteractionPrompt(integrations, await describeUserNow()) + await loadMemoryProfile();
 
   const userText = opts.mediaError
     ? `[user sent images but they couldn't be downloaded: ${opts.mediaError}]\n${opts.content}`
@@ -370,6 +371,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           ? []
           : [
               "mcp__boop-memory__write_memory",
+              "mcp__boop-memory__forget_memory",
               "mcp__boop-memory__recall",
               "mcp__boop-calendar__*",
               "mcp__boop-saved__*",

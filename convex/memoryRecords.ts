@@ -40,27 +40,39 @@ export const upsert = mutation({
     embedding: v.optional(v.array(v.float64())),
     metadata: v.optional(v.string()),
     imageStorageIds: v.optional(v.union(v.array(v.id("_storage")), v.null())),
+    deduplicate: v.optional(v.boolean()),
+    requireActiveSupersedes: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    const { deduplicate, requireActiveSupersedes, ...storedArgs } = args;
+    // Resolve all replacement targets before writing, inside this transaction.
+    const targets = await Promise.all((args.supersedes ?? []).filter(id => id !== args.memoryId).map(memoryId =>
+      ctx.db.query("memoryRecords").withIndex("by_memory_id", q => q.eq("memoryId", memoryId)).unique(),
+    ));
+    if (requireActiveSupersedes && targets.some(row => !row || row.lifecycle !== "active")) {
+      throw new Error("Memory correction is stale; recall current facts before replacing them.");
+    }
+
+    const normalize = (text: string) => text.trim().toLowerCase().replace(/\s+/g, " ");
+    const duplicate = deduplicate && !args.imageStorageIds?.length
+      ? (await ctx.db.query("memoryRecords").withIndex("by_lifecycle", q => q.eq("lifecycle", "active"))
+          .order("desc").take(500)).find(row => !isDemoId(row.memoryId) && !row.imageStorageIds?.length &&
+            !(args.supersedes ?? []).includes(row.memoryId) && normalize(row.content) === normalize(args.content))
+      : undefined;
 
     // Archive any memories this one supersedes. Must run on BOTH the insert
     // and update paths — consolidation merges typically update an existing
     // "keep" memory while archiving the ones it absorbed.
-    if (args.supersedes?.length) {
-      for (const sid of args.supersedes) {
-        if (sid === args.memoryId) continue; // never archive self
-        const target = await ctx.db
-          .query("memoryRecords")
-          .withIndex("by_memory_id", (q) => q.eq("memoryId", sid))
-          .unique();
+    if (targets.length) {
+      for (const target of targets) {
         if (target && target.lifecycle === "active") {
           await ctx.db.patch(target._id, { lifecycle: "archived" });
         }
       }
     }
 
-    const existing = await ctx.db
+    const existing = duplicate ?? await ctx.db
       .query("memoryRecords")
       .withIndex("by_memory_id", (q) => q.eq("memoryId", args.memoryId))
       .unique();
@@ -68,11 +80,11 @@ export const upsert = mutation({
     if (existing) {
       await ctx.db.patch(existing._id, {
         content: args.content,
-        tier: args.tier,
+        tier: deduplicate && existing.tier === "permanent" ? "permanent" : args.tier,
         segment: args.segment,
         importance: args.importance,
         decayRate: args.decayRate,
-        supersedes: args.supersedes,
+        supersedes: [...new Set([...(existing.supersedes ?? []), ...(args.supersedes ?? [])])],
         embedding: args.embedding ?? existing.embedding,
         metadata: args.metadata ?? existing.metadata,
         imageStorageIds:
@@ -86,7 +98,7 @@ export const upsert = mutation({
       return existing._id;
     }
 
-    const { imageStorageIds, ...rest } = args;
+    const { imageStorageIds, ...rest } = storedArgs;
     return await ctx.db.insert("memoryRecords", {
       ...rest,
       ...(imageStorageIds && imageStorageIds.length > 0
@@ -109,6 +121,20 @@ export const getByIds = query({
       if (r && !isDemoId(r.memoryId)) out.push(r);
     }
     return out;
+  },
+});
+
+// Segment indexes keep background context from crowding out stable preferences.
+export const profile = query({
+  args: {},
+  handler: async (ctx) => {
+    const groups = await Promise.all((["identity", "preference", "correction"] as const).map(segment =>
+      ctx.db.query("memoryRecords").withIndex("by_segment", q => q.eq("segment", segment))
+        .order("desc").take(300),
+    ));
+    return groups.flatMap(rows => rows.filter(row => row.lifecycle === "active" && !isDemoId(row.memoryId)).slice(0, 15))
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map(({ memoryId, content, segment, createdAt }) => ({ memoryId, content, segment, createdAt }));
   },
 });
 

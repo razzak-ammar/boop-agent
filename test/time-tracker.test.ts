@@ -66,7 +66,7 @@ describe("TimeTracker tools and drafts", () => {
   }
   it("stages stopping a timer with both fields and performs no HTTP write", async () => {
     const c = fake();
-    const tool = createTimeTrackerTools("chat", () => c as unknown as TimeTrackerClient).find(t => t.name === "stop_timer")!;
+    const tool = createTimeTrackerTools("chat", () => c as unknown as TimeTrackerClient, async () => "America/New_York").find(t => t.name === "stop_timer")!;
     const result = await tool.handle({ id: "entry", endTime: "2026-11-01T21:00:00Z" });
     expect(result.success).toBe(true);
     const draft = vi.mocked(convex.mutation).mock.calls[0][1] as any;
@@ -85,7 +85,7 @@ describe("TimeTracker tools and drafts", () => {
   });
   it("persists a create ID in the pending draft and blocks a second active timer", async () => {
     const c = fake();
-    const tool = createTimeTrackerTools("chat", () => c as unknown as TimeTrackerClient).find(t => t.name === "start_timer")!;
+    const tool = createTimeTrackerTools("chat", () => c as unknown as TimeTrackerClient, async () => "America/New_York").find(t => t.name === "start_timer")!;
     expect((await tool.handle({ projectId: "project", startTime: record.startTime })).success).toBe(true);
     const draft = vi.mocked(convex.mutation).mock.calls[0][1] as any;
     expect(JSON.parse(draft.payload).body.id).toMatch(/^[a-f0-9-]{36}$/);

@@ -1,3 +1,5 @@
+import { getStoredUserTimezone } from "../timezone-config.js";
+import { eventPreview, localizeEvent, resolveLocalTime } from "./time.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { api } from "../../convex/_generated/api.js";
@@ -42,7 +44,7 @@ function version(record: RecordData): string {
 }
 
 /** Called only by send_draft after user approval; writes never run in workers. */
-export async function executeTimeTrackerDraft(payload: string, client = getTimeTrackerClient()): Promise<unknown> {
+async function executeTimeTrackerDraftRaw(payload: string, client: TimeTrackerClient): Promise<unknown> {
   const draft = draftSchema.parse(JSON.parse(payload));
   if (draft.operation === "create_event") validateEvent(draft.body);
   if (draft.operation === "create_event" || draft.operation === "create_project") {
@@ -67,7 +69,18 @@ export async function executeTimeTrackerDraft(payload: string, client = getTimeT
   return client.request("PATCH", `${resource}/${draft.id}`, draft.body);
 }
 
-export function createTimeTrackerTools(conversationId?: string, clientProvider = getTimeTrackerClient): RuntimeTool[] {
+export async function executeTimeTrackerDraft(payload: string, client = getTimeTrackerClient(), timezoneProvider = getStoredUserTimezone): Promise<unknown> {
+  const result = await executeTimeTrackerDraftRaw(payload, client);
+  if (result && typeof result === "object" && "data" in result) {
+    const data = (result as { data: RecordData }).data;
+    if (data && typeof data === "object" && typeof data.startTime === "string" && typeof data.projectId === "string") {
+      return { ...result, data: localizeEvent(data, await timezoneProvider()) };
+    }
+  }
+  return result;
+}
+
+export function createTimeTrackerTools(conversationId?: string, clientProvider = getTimeTrackerClient, timezoneProvider = getStoredUserTimezone): RuntimeTool[] {
   const tools: RuntimeTool[] = [];
   const add = <T extends z.ZodRawShape>(name: string, description: string, shape: T, handle: (args: z.infer<z.ZodObject<T>>) => Promise<unknown>) => {
     tools.push(defineRuntimeTool("timetracker", name, description, shape, async args => {
@@ -75,13 +88,32 @@ export function createTimeTrackerTools(conversationId?: string, clientProvider =
       catch (error) { return runtimeText(error instanceof Error ? error.message : "TimeTracker operation failed.", false); }
     }));
   };
+  const requireTimezone = async () => {
+    const timezone = await timezoneProvider();
+    if (!timezone) throw new Error("Ask the user to set their timezone before preparing a time-entry draft.");
+    return timezone;
+  };
   const stage = async (summary: string, draft: Draft) => {
     if (!conversationId) throw new Error("TimeTracker writes require a conversation to stage a draft for approval.");
     draftSchema.parse(draft);
+    let preview: RecordData | undefined;
+    if (draft.operation === "create_event" || draft.operation === "update_event" || draft.operation === "delete_event") {
+      const timezone = await requireTimezone();
+      const event = draft.operation === "create_event" ? draft.body : {
+        ...await clientProvider().get("events", draft.id),
+        ...(draft.operation === "update_event" ? draft.body : {}),
+      };
+      preview = localizeEvent(event, timezone);
+      const action = draft.operation === "delete_event" ? "Delete" : draft.operation === "update_event" ? "Update" : "Log";
+      summary = `${action} TimeTracker entry: ${eventPreview(event, timezone)}`;
+    }
     const draftId = `draft_${randomUUID()}`;
     await convex.mutation(api.drafts.create, { draftId, conversationId, kind: "timetracker.action", summary, payload: JSON.stringify(draft) });
-    return { draftId, summary, status: "pending", instruction: "Show this draft to the user. Only send_draft commits after approval. Do not save another copy with save_draft." };
+    return { draftId, summary, ...(preview ? { preview } : {}), status: "pending", instruction: "Show this draft to the user. Only send_draft commits after approval. Do not save another copy with save_draft." };
   };
+  add("resolve_local_time", "Convert an explicit local calendar date and 24-hour time to API timestamps using the user's saved timezone. Call this before writing times or building date filters; do not calculate UTC offsets yourself. Resolve relative dates from Application Time context. Ambiguous/nonexistent DST times require clarification.", {
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), time: z.string().regex(/^\d{2}:\d{2}$/), occurrence: z.enum(["earlier", "later"]).optional(),
+  }, async args => resolveLocalTime(args.date, args.time, await requireTimezone(), args.occurrence));
   add("check_connection", "Read-only TimeTracker connection check. Never returns credentials.", {}, async () => {
     await clientProvider().request("GET", "projects", undefined, { limit: 1 });
     return { connected: true };
@@ -92,9 +124,10 @@ export function createTimeTrackerTools(conversationId?: string, clientProvider =
     projectId: id.optional(), from: timestamp.optional(), to: timestamp.optional(), isActive: z.boolean().optional(), includeDeleted: z.boolean().optional(),
   }, async args => {
     if (args.from && args.to && Date.parse(args.from) >= Date.parse(args.to)) throw new Error("to must be after from.");
-    return (await clientProvider().list("events", args)).sort((a, b) => Date.parse(String(a.startTime)) - Date.parse(String(b.startTime)) || a.id.localeCompare(b.id));
+    const timezone = await timezoneProvider();
+    return (await clientProvider().list("events", args)).sort((a, b) => Date.parse(String(a.startTime)) - Date.parse(String(b.startTime)) || a.id.localeCompare(b.id)).map(event => localizeEvent(event, timezone));
   });
-  add("get_event", "Read one TimeTracker time entry, including trash metadata.", { id }, args => clientProvider().get("events", args.id));
+  add("get_event", "Read one TimeTracker time entry, including trash metadata.", { id }, async args => localizeEvent(await clientProvider().get("events", args.id), await timezoneProvider()));
   add("create_project", "Stage a new TimeTracker project for approval; does not write to TimeTracker yet.", projectFields, async args => stage(`Create TimeTracker project: ${args.name}`, { operation: "create_project", body: { ...args, id: randomUUID(), isPinned: args.isPinned ?? false } }));
   add("update_project", "Stage project name, color or pin changes for approval.", { id, changes: projectPatch }, async args => {
     const current = await clientProvider().get("projects", args.id);

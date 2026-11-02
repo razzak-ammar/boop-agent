@@ -48,7 +48,7 @@ These are account session credentials, not a separately scoped agent API token.
 
 ## Tools and writes
 
-Tools: `check_connection`, `list_projects`, `get_project`, `create_project`,
+Tools: `resolve_local_time`, `check_connection`, `list_projects`, `get_project`, `create_project`,
 `update_project`, `list_events`, `get_event`, `create_event`, `update_event`,
 `delete_event`, `start_timer`, and `stop_timer`.
 
@@ -89,3 +89,20 @@ npm test -- test/time-tracker.test.ts test/draft-listing.test.ts test/execution-
 
 A checkout needs its normal generated Convex files before typechecking or tests.
 Tests use mocked HTTP/Convex boundaries, never real credentials or time entries.
+
+## Local dates and timezones
+
+Workers receive the application's current local date, time and saved IANA
+timezone for every run. If the timezone is unset, they must ask for it instead
+of using the server's zone. `resolve_local_time` converts an explicit `date`
+(YYYY-MM-DD) and `time` (24-hour HH:mm) using the saved timezone, returning both
+UTC and local timestamps. Use it for writes and filter boundaries instead of
+having the model calculate offsets. Repeated DST wall times require an explicit
+`occurrence` (`earlier` or `later`); nonexistent spring-forward times fail.
+
+Read tools and successful write results retain UTC storage fields and add
+`localTime` with timezone, local ISO strings and human-readable labels. Event
+draft summaries and previews show the local calendar date and time, so the user
+can check the intended day before approval. Time-entry draft preparation requires
+a confirmed timezone. UTC remains the API/storage format. New York follows EDT
+or EST according to the event date, rather than a fixed UTC-5 offset all year.

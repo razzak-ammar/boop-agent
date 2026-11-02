@@ -1,3 +1,4 @@
+import { describeUserNow } from "./timezone-config.js";
 import { formatRecordCost } from "./token-pricing.js";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
@@ -107,7 +108,7 @@ Safety:
 - Anything that sends a message, creates an event, or takes an external action: call save_draft with a JSON payload instead of the real send/create tool. Return the summary so the interaction agent can show it to the user.
 - Only the interaction agent's send_draft tool commits. You never commit.`;
 
-export function buildExecutionPrompt(integrations: string[]): string {
+export function buildExecutionPrompt(integrations: string[], time?: { isExplicit: boolean; timezone: string; now: string; isoDate?: string }): string {
   let prompt = EXECUTION_SYSTEM;
   if (!integrations.includes("browser")) {
     prompt = prompt.replace(/\nLocal browser:\n[\s\S]*?(?=\nApple data:)/, "");
@@ -120,7 +121,15 @@ export function buildExecutionPrompt(integrations: string[]): string {
 TimeTracker:
 - Events are personal time entries, not calendar events. Discover project IDs before logging work. Use the user's configured IANA timezone and per-instant offsets; ask if local times are ambiguous. Descriptions must reflect supplied facts.
 - TimeTracker write tools automatically stage drafts. Call them directly to prepare a draft, instead of save_draft. They NEVER commit; send_draft executes approved TimeTracker drafts directly. Do not create duplicate drafts.
+- Call resolve_local_time for wall-clock-to-API conversion. Present entries using localTime labels, not raw UTC fields. UTC and local timestamps can describe the same entry; compare instants, not clock strings.
 - from/to filters select startTime, not interval overlap. Read current entries before editing. Never report a staged draft as a completed write.`;
+  }
+  if (time) {
+    prompt += "\n\nApplication Time context: " + JSON.stringify({
+      userTimezone: time.isExplicit ? time.timezone : null,
+      currentLocalTime: time.isExplicit ? time.now : null,
+      currentLocalDate: time.isExplicit ? time.isoDate ?? null : null,
+    }) + "\nResolve today/yesterday/tomorrow against this local date. Preserve explicit dates from the task. If userTimezone is null, ask for it before interpreting wall-clock times. Use the timezone rules for the event date, including daylight saving time; do not use a fixed EST offset year-round.";
   }
   return prompt;
 }
@@ -212,7 +221,7 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
     });
     const result = await runAgentRuntime(runtimeConfig, {
       prompt: executionPrompt,
-      systemPrompt: buildExecutionPrompt(opts.integrations),
+      systemPrompt: buildExecutionPrompt(opts.integrations, await describeUserNow()),
       claudeMcpServers: mcpServers,
       tools: runtimeTools,
       allowedTools,

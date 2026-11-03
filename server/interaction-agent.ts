@@ -309,7 +309,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
       {
         task: z
           .string()
-          .describe("Crisp task description — what to find/draft/do, not the raw user message."),
+          .describe("Crisp task description — what to find/draft/do, not the raw user message. Write dates and times fully resolved (local YYYY-MM-DD, 24-hour); the user's exact message is attached automatically."),
         integrations: z
           .array(z.string())
           .describe(`Which integrations to give the agent. Available: ${integrations.join(", ") || "(none)"}`),
@@ -355,6 +355,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
         }
         const res = await spawnExecutionAgent({
           task: args.task,
+          userRequest: opts.kind === "proactive" ? undefined : opts.content,
           integrations: selectedIntegrations,
           conversationId: opts.conversationId,
           name: args.name,

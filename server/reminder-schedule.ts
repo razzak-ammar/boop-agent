@@ -36,20 +36,45 @@ export function resolveReminderClock(clock: string, day: string, timezone: strin
   return `${date}T${clock}`;
 }
 
+const CLOCK_REQUEST = /^\s*(?:(?:hey|ok|okay|please|pls|boop|can you|could you|would you|will you)[\s,]+)*(?:remind me|set (?:a )?reminder(?: for me)?)\s+(?:(today|tonight|tomorrow)\s+)?at\s+(\d{1,2})(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)?(?:\s+(today|tonight|tomorrow))?(?=$|[\s,;:!?.-])(.*)$/is;
+// A date or day-part anywhere after the clock means the request is not clock-only.
+const LATER_DATE = /\b(?:today|tonight|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun|weekend)\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d|\b\d{1,2}(?:st|nd|rd|th)\b|\b\d{1,2}\/\d{1,2}\b|\b\d{4}-\d{2}-\d{2}\b|\b(?:next|this)\s+(?:week|month)\b|\bin\s+\d+\s+(?:days?|weeks?)\b/i;
+const DAY_PART = /\b(?:morning|afternoon|evening|night|noon|midnight)\b/i;
+
 /** Narrow guard for an unambiguous clock-only request. Leave all other natural
- * language to the dispatcher; never silently reinterpret an explicit date. */
+ * language to the dispatcher; never silently reinterpret an explicit date.
+ * A bare hour today means its next upcoming occurrence (9 at 7 PM is 21:00). */
 export function assertRequestedReminderTime(request: string, fields: ScheduleFields, timezone: string, now = Date.now()): void {
   if (fields.scheduleKind !== "once" || fields.nextRunAt === undefined) return;
-  const match = /^\s*(?:please\s+)?remind me\s+(?:(today|tonight|tomorrow)\s+)?at\s+(\d{1,2})(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)\s*(today|tonight|tomorrow)?\s+to\b/i.exec(request);
+  const match = CLOCK_REQUEST.exec(request);
   if (!match) return;
-  const hour = Number(match[2]);
-  if (hour < 1 || hour > 12 || (match[1] && match[5] && match[1].toLowerCase() !== match[5].toLowerCase())) return;
-  const meridiem = match[4].replaceAll(".", "").toLowerCase();
-  const clock = `${String(hour % 12 + (meridiem === "pm" ? 12 : 0)).padStart(2, "0")}:${match[3] ?? "00"}`;
-  const requestedDay = (match[1] ?? match[5] ?? "today").toLowerCase();
-  const expected = resolveReminderClock(clock, requestedDay === "tonight" ? "today" : requestedDay, timezone, now);
+  const [, before, hourText, minutes = "00", meridiemText, after, rest] = match;
+  const hour = Number(hourText);
+  if (hour < 1 || hour > 12 || LATER_DATE.test(rest) || (before && after && before.toLowerCase() !== after.toLowerCase())) return;
+  const spokenDay = (before ?? after ?? "today").toLowerCase();
+  const day = spokenDay === "tonight" ? "today" : spokenDay;
+  const clockFor = (meridiem: string) => `${String(hour % 12 + (meridiem === "pm" ? 12 : 0)).padStart(2, "0")}:${minutes}`;
+  let meridiem: string | undefined = meridiemText?.replaceAll(".", "").toLowerCase();
+  // "tonight at 1am" is tomorrow's date; leave it to the dispatcher.
+  if (spokenDay === "tonight" && meridiem === "am") return;
+  if (!meridiem) {
+    if (DAY_PART.test(rest)) return;
+    if (spokenDay === "tonight") meridiem = "pm";
+    else if (day === "today") {
+      meridiem = ["am", "pm"].find((candidate) => {
+        try {
+          return parseReminderTime(resolveReminderClock(clockFor(candidate), "today", timezone, now), timezone, true) > now;
+        } catch {
+          return false;
+        }
+      });
+    }
+    if (!meridiem) return;
+  }
+  const clock = clockFor(meridiem);
+  const expected = resolveReminderClock(clock, day, timezone, now);
   if (localStamp(fields.nextRunAt, timezone).slice(0, 16) !== expected) {
-    throw new Error(`The saved time conflicts with the user's request. Use localTime="${clock}" and day="${requestedDay === "tonight" ? "today" : requestedDay}" in ${timezone}. Do not claim success or move it to another day.`);
+    throw new Error(`The saved time conflicts with the user's request. Use localTime="${clock}" and day="${day}" in ${timezone}. Do not claim success or move it to another day.`);
   }
 }
 function localStamp(at: number, timezone: string): string {

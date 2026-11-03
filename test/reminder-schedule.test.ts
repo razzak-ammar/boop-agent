@@ -15,6 +15,35 @@ describe("reminder schedules", () => {
     const wrongDay = buildSchedule({ at: "2026-11-02T20:30:00" }, "America/New_York", evening);
     expect(() => assertRequestedReminderTime("Remind me at 8:30 pm to check the NIRVE data", wrongDay, "America/New_York", evening)).toThrow(/conflicts/);
   });
+  it("checks wider phrasings and resolves a bare hour to its next upcoming occurrence", () => {
+    const tz = "America/New_York";
+    const evening = Date.parse("2026-11-03T00:12:00Z"); // Mon Nov 2, 7:12 PM EST
+    const ninePm = buildSchedule({ localTime: "21:00", day: "today" }, tz, evening);
+    const nineAmTomorrow = buildSchedule({ localTime: "09:00", day: "tomorrow" }, tz, evening);
+    for (const request of [
+      "Remind me at 9pm that I need to send the report",
+      "Can you remind me at 9 p.m. about the report",
+      "please set a reminder at 9pm: send the report",
+      "remind me at 9 that I need to send the report",
+      "remind me tonight at 9 to send the report",
+    ]) {
+      expect(() => assertRequestedReminderTime(request, ninePm, tz, evening)).not.toThrow();
+      expect(() => assertRequestedReminderTime(request, nineAmTomorrow, tz, evening)).toThrow(/localTime="21:00" and day="today"/);
+    }
+    const morning = Date.parse("2026-11-02T12:00:00Z"); // 7:00 AM EST
+    const nineAm = buildSchedule({ localTime: "09:00", day: "today" }, tz, morning);
+    expect(() => assertRequestedReminderTime("remind me at 9 to stretch", nineAm, tz, morning)).not.toThrow();
+    // Later dates or day-parts are not clock-only; the guard stays out of the way.
+    for (const request of [
+      "remind me at 9pm to call mom tomorrow",
+      "remind me at 9 in the morning to stretch",
+      "remind me at 9pm on Friday to submit",
+      "remind me tonight at 1am to sleep",
+      "remind me at 7 to stretch",
+    ]) {
+      expect(() => assertRequestedReminderTime(request, nineAmTomorrow, tz, evening)).not.toThrow();
+    }
+  });
   it("preserves explicit tomorrow requests and refuses to roll a past clock to tomorrow", () => {
     const evening = Date.parse("2026-11-02T00:49:59Z");
     const tomorrow = buildSchedule({ localTime: "20:30", day: "tomorrow" }, "America/New_York", evening);

@@ -13,6 +13,11 @@ describe("trusted time context", () => {
     expect(prompt).toContain('day="today"');
     expect(prompt).toContain("Echo the saved weekday, calendar date, time, and timezone");
   });
+  it("reads bare clock times as upcoming and resolves them before delegating", () => {
+    const prompt = buildInteractionPrompt([], {isExplicit:true,timezone:"America/New_York",now:"Mon, Nov 2, 2026, 6:45 PM EST",isoDate:"2026-11-02"});
+    expect(prompt).toContain('at 6:45 PM, "8-9:30" with no day means 8:00-9:30 PM today');
+    expect(prompt).toContain("write the resolved local date and 24-hour times into the task");
+  });
   it("does not expose the server fallback as the user's clock", () => {
     const prompt = buildInteractionPrompt([], {isExplicit:false,timezone:"UTC",now:"server-clock"});
     expect(prompt).toContain('"userTimezone":null,"currentLocalTime":null');

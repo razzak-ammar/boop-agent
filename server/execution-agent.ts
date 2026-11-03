@@ -17,6 +17,7 @@ import { runAgentRuntime } from "./runtimes/index.js";
 import { buildPromptWithImages, fetchStoredBytes } from "./images/content-blocks.js";
 import { loadMemoryProfile } from "./memory/profile.js";
 import { createRecallTools } from "./memory/tools.js";
+import { BARE_CLOCK_RULE } from "./interaction-prompt.js";
 
 const running = new Map<string, AbortController>();
 
@@ -142,13 +143,26 @@ Calendar reads:
       userTimezone: time.isExplicit ? time.timezone : null,
       currentLocalTime: time.isExplicit ? time.now : null,
       currentLocalDate: time.isExplicit ? time.isoDate ?? null : null,
-    }) + "\nResolve today/yesterday/tomorrow against this local date. Preserve explicit dates from the task. If userTimezone is null, ask for it before interpreting wall-clock times. Use the timezone rules for the event date, including daylight saving time; do not use a fixed EST offset year-round.";
+    }) + "\nResolve today/yesterday/tomorrow against this local date. Preserve explicit dates from the task. If userTimezone is null, ask for it before interpreting wall-clock times. Use the timezone rules for the event date, including daylight saving time; do not use a fixed EST offset year-round.\n" + BARE_CLOCK_RULE;
   }
   return prompt;
 }
 
+const MAX_ATTACHED_REQUEST = 2000;
+
+/** The dispatcher's rewrite can drop details such as am/pm, so the worker also
+ * sees the user's own words for this turn. */
+export function taskWithUserRequest(task: string, userRequest?: string): string {
+  const request = userRequest?.trim();
+  if (!request || task.includes(request)) return task;
+  const quoted = request.length > MAX_ATTACHED_REQUEST ? `${request.slice(0, MAX_ATTACHED_REQUEST)}…` : request;
+  return `${task}\n\nUser's exact message this turn (use it for dates, times, and am/pm; if it conflicts with the task above, follow it or ask):\n"""\n${quoted}\n"""`;
+}
+
 export interface SpawnOptions {
   task: string;
+  /** The user's current message, attached verbatim to the task. */
+  userRequest?: string;
   integrations: string[];
   conversationId?: string;
   name?: string;
@@ -184,12 +198,14 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
   );
   const agentStart = Date.now();
   const runtimeConfig = opts.runtimeConfig ?? (await getRuntimeConfig());
+  // Stored with the attachment so retries replay the user's words too.
+  const task = taskWithUserRequest(opts.task, opts.userRequest);
 
   await convex.mutation(api.agents.create, {
     agentId,
     conversationId: opts.conversationId,
     name,
-    task: opts.task,
+    task,
     runtime: runtimeConfig.runtime,
     model: runtimeConfig.model,
     reasoningEffort: runtimeConfig.reasoningEffort,
@@ -230,7 +246,7 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
 
   try {
     const executionPrompt = await buildPromptWithImages({
-      text: opts.task,
+      text: task,
       imageStorageIds: opts.imageStorageIds,
       fetchBytes: fetchStoredBytes,
     });

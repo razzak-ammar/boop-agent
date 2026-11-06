@@ -22,7 +22,7 @@ export const create = mutation({
         v.literal("calendar"),
       ),
     ),
-    delivery: v.optional(v.union(v.literal("agent"), v.literal("reminder"), v.literal("checkin"))),
+    delivery: v.optional(v.union(v.literal("agent"), v.literal("reminder"), v.literal("checkin"), v.literal("lookahead"))),
     reminderText: v.optional(v.string()),
     goalId: v.optional(v.string()),
     intervalMs: v.optional(v.number()),

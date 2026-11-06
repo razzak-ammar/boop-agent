@@ -16,8 +16,8 @@ successful delivery. Calendar intervals preserve the local clock across month
 boundaries and daylight saving changes; elapsed intervals such as every 48 hours
 preserve elapsed duration instead. Cron supports selected weekdays, weekly,
 monthly, and multiple times per day. Several unrelated dates can be saved as
-separate one-time reminders. These are fixed schedules, not calendar-event or
-todo-completion triggers.
+separate one-time reminders. These are fixed schedules. For things that must happen within a
+window or relative to a calendar event, see [Tasks](TASKS.md).
 
 Local wall-clock schedules require the user's saved IANA timezone. The server's
 zone is never silently substituted. Relative delays need no timezone. A local

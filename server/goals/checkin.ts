@@ -86,20 +86,34 @@ export async function runGoalCheckin(a: CheckinAutomation): Promise<CheckinResul
     `Write the message now, or ${SKIP}.`,
   ].filter(Boolean).join("\n\n");
 
+  const result = await runProactiveModel({ prompt, systemPrompt: CHECKIN_SYSTEM + await loadMemoryProfile(), tools: calendar, conversationId });
+  const text = result.text.trim();
+  return { text: !text || text === SKIP ? undefined : text };
+}
+
+/** One tool-limited model call for a proactive message (check-ins, lookahead),
+ * with usage recorded under the "proactive" source. Only calendar reads are
+ * allowed; the message can suggest but never change anything. */
+export async function runProactiveModel(opts: {
+  prompt: string;
+  systemPrompt: string;
+  tools: ReturnType<typeof createCalendarTools>;
+  conversationId: string;
+}) {
   const runtimeConfig = await getRuntimeConfig();
   const started = Date.now();
   const result = await runAgentRuntime(runtimeConfig, {
-    prompt,
-    systemPrompt: CHECKIN_SYSTEM + await loadMemoryProfile(),
-    tools: calendar,
+    prompt: opts.prompt,
+    systemPrompt: opts.systemPrompt,
+    tools: opts.tools,
     mode: "dispatcher",
-    allowedTools: calendar.length ? ["mcp__boop-calendar__*"] : [],
+    allowedTools: opts.tools.length ? ["mcp__boop-calendar__*"] : [],
     disallowedTools: ["WebSearch", "WebFetch", "Bash", "Read", "Write", "Edit", "Glob", "Grep", "Agent", "Skill"],
   });
   if (result.usage.costUsd > 0 || result.usage.inputTokens > 0) {
     await convex.mutation(api.usageRecords.record, {
       source: "proactive",
-      conversationId,
+      conversationId: opts.conversationId,
       runtime: runtimeConfig.runtime,
       billingMode: runtimeConfig.billingMode,
       model: result.usage.model,
@@ -111,6 +125,5 @@ export async function runGoalCheckin(a: CheckinAutomation): Promise<CheckinResul
       durationMs: Date.now() - started,
     });
   }
-  const text = result.text.trim();
-  return { text: !text || text === SKIP ? undefined : text };
+  return result;
 }

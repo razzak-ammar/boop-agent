@@ -6,6 +6,8 @@
 
 **Saved library:** durable notes, named collections, and Telegram link/screenshot capture. See [Saved notes and collections](docs/SAVED.md).
 
+**Tasks and the daily lookahead:** track things that must get done without a fixed time ("within a week after my flight back"), get nudged until they're done, and get asked ahead about upcoming calendar events. See [Tasks and the daily lookahead](docs/TASKS.md).
+
 **Goals and check-ins:** track deadlines and milestones, get model-written progress check-ins, and ask for a plan for today. See [Goals and check-ins](docs/GOALS.md).
 
 

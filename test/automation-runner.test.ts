@@ -11,6 +11,7 @@ vi.mock("../server/notifications.js", () => ({
 }));
 vi.mock("../server/broadcast.js", () => ({ broadcast: vi.fn() }));
 vi.mock("../server/goals/checkin.js", () => ({ runGoalCheckin: vi.fn() }));
+vi.mock("../server/tasks/lookahead.js", () => ({ runLookahead: vi.fn(), recordLookaheadDelivered: vi.fn() }));
 vi.mock("../server/timezone-config.js", () => ({
   getUserTimezone: vi.fn().mockResolvedValue("America/New_York"),
 }));

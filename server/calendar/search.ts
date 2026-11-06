@@ -1,4 +1,5 @@
 import { parseReminderTime } from "../reminder-schedule.js";
+import { detectFlight, termMatches, type DetectedFlight } from "./flights.js";
 
 type Row = Record<string, unknown>;
 export type CalendarRead = (tool: "GOOGLECALENDAR_LIST_CALENDARS" | "GOOGLECALENDAR_EVENTS_LIST", args: Row) => Promise<unknown>;
@@ -9,12 +10,15 @@ export interface CalendarSearchInput {
   end?: string;
   daysAhead?: number;
   limit?: number;
+  /** Only events that look like flights (airline code, "flight", airport). */
+  flightsOnly?: boolean;
 }
 interface Calendar { id: string; name: string; accessRole?: string }
 export interface CalendarMatch {
   id: string; calendarId: string; calendarName: string; title: string;
   start: string; end?: string; allDay: boolean; localStart: string;
-  description?: string; url?: string;
+  description?: string; location?: string; url?: string;
+  flight?: DetectedFlight;
   matchedTerms: string[];
 }
 export interface CalendarCoverage {
@@ -22,7 +26,7 @@ export interface CalendarCoverage {
 }
 const MAX_PAGES = 20;
 const MAX_CALENDARS = 100;
-const FIELDS = "items(id,status,summary,description,start,end,htmlLink),nextPageToken";
+const FIELDS = "items(id,status,summary,description,location,start,end,htmlLink),nextPageToken";
 const row = (value: unknown): Row => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Row : {};
 const text = (value: unknown) => typeof value === "string" ? value : undefined;
 
@@ -121,9 +125,12 @@ export async function searchCalendarEvents(input: CalendarSearchInput, read: Cal
             if (event.status === "cancelled") continue;
             const title = text(event.summary) ?? "Untitled event";
             const description = text(event.description) ?? "";
-            const haystack = `${title}\n${description}`.toLocaleLowerCase();
-            const matchedTerms = terms.filter(term => haystack.includes(term));
+            const location = text(event.location) ?? "";
+            const haystack = `${title}\n${location}\n${description}`.toLocaleLowerCase();
+            const matchedTerms = terms.filter(term => termMatches(haystack, term));
             if (terms.length && !matchedTerms.length) continue;
+            const flight = detectFlight(title, location, description);
+            if (input.flightsOnly && !flight) continue;
             const id = text(event.id);
             if (!id) { scanned.issue = "Some matching events had no event ID."; continue; }
             try {
@@ -138,6 +145,7 @@ export async function searchCalendarEvents(input: CalendarSearchInput, read: Cal
                 id, calendarId: calendar.id, calendarName: calendar.name, title,
                 start: text(start.dateTime) ?? text(start.date)!, end: text(end.dateTime) ?? text(end.date),
                 allDay, localStart, description: description ? description.slice(0, 300) : undefined,
+                location: location || undefined, flight,
                 url: text(event.htmlLink), matchedTerms, instant,
               });
             } catch { scanned.issue = "Some matching event dates could not be interpreted."; }

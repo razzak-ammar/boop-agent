@@ -7,6 +7,7 @@ import { broadcast } from "./broadcast.js";
 import { getUserTimezone } from "./timezone-config.js";
 import { followingRun, nextCronRun } from "./reminder-schedule.js";
 import { runGoalCheckin } from "./goals/checkin.js";
+import { recordLookaheadDelivered, runLookahead, type LookaheadResult } from "./tasks/lookahead.js";
 
 export function nextRunFor(schedule: string, timezone = "UTC"): number | null {
   try {
@@ -55,6 +56,7 @@ async function runAutomation(automationId: string): Promise<void> {
   let agentId: string | undefined;
   let error: string | undefined;
   let goalInactive = false;
+  let lookahead: LookaheadResult | undefined;
   try {
     if (a.delivery === "reminder") {
       if (!a.reminderText) throw new Error("Reminder text is missing.");
@@ -65,6 +67,9 @@ async function runAutomation(automationId: string): Promise<void> {
       const res = await runGoalCheckin(a);
       result = res.text;
       goalInactive = res.inactive === true;
+    } else if (a.delivery === "lookahead") {
+      lookahead = await runLookahead(a);
+      result = lookahead.text;
     } else {
       const res = await spawnExecutionAgent({
         task: `AUTOMATION "${a.name}": ${a.task}`,
@@ -85,7 +90,7 @@ async function runAutomation(automationId: string): Promise<void> {
     if (a.notifyConversationId && result) {
       const text = redactPhoneNumbers(a.delivery === "reminder"
         ? `Reminder: ${result}`
-        : a.delivery === "checkin"
+        : a.delivery === "checkin" || a.delivery === "lookahead"
           ? result
           : `[${a.name}]\n\n${result}`);
       await sendConversationNotification(a.notifyConversationId, text);
@@ -94,6 +99,7 @@ async function runAutomation(automationId: string): Promise<void> {
         role: "assistant",
         content: text,
       });
+      if (lookahead) await recordLookaheadDelivered(a.notifyConversationId, lookahead);
     }
   } catch (err) {
     error = String(err);

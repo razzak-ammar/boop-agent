@@ -194,7 +194,7 @@ export default defineSchema({
     integrations: v.array(v.string()),
     schedule: v.string(),
     scheduleKind: v.optional(v.union(v.literal("cron"), v.literal("once"), v.literal("interval"), v.literal("calendar"))),
-    delivery: v.optional(v.union(v.literal("agent"), v.literal("reminder"), v.literal("checkin"))),
+    delivery: v.optional(v.union(v.literal("agent"), v.literal("reminder"), v.literal("checkin"), v.literal("lookahead"))),
     reminderText: v.optional(v.string()),
     // Goal check-ins: the goal to check on. Absent on a "checkin" delivery
     // means a daily plan across every active goal.
@@ -254,6 +254,59 @@ export default defineSchema({
     note: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_goal_id", ["goalId"]),
+
+  // Things the user must get done that don't fit a fixed reminder: "sometime
+  // the week after my flight back", "study for the exam, date unknown". The
+  // daily lookahead sweep nudges them on a cadence until they're done.
+  tasks: defineTable({
+    taskId: v.string(),
+    conversationId: v.string(),
+    title: v.string(),
+    notes: v.optional(v.string()),
+    // Local YYYY-MM-DD window. Both absent = undated (keep asking).
+    earliest: v.optional(v.string()),
+    latest: v.optional(v.string()),
+    // When the window is tied to a calendar event, the sweep re-reads that
+    // event and shifts the window if the event moves.
+    anchor: v.optional(v.object({
+      eventId: v.string(),
+      calendarId: v.string(),
+      title: v.string(),
+      // Local date of the event start (or end, for relation "after").
+      date: v.string(),
+      relation: v.union(v.literal("before"), v.literal("after")),
+      // Window is [date, date + days] for "after", [date - days, date] for "before".
+      days: v.number(),
+    })),
+    // Undated tasks: what's still unknown, e.g. "exam date".
+    waitingOn: v.optional(v.string()),
+    importance: v.union(v.literal("normal"), v.literal("high")),
+    // Days between nudges while the task is actionable.
+    cadenceDays: v.number(),
+    status: v.union(v.literal("open"), v.literal("done"), v.literal("dropped")),
+    snoozedUntil: v.optional(v.string()),
+    lastNudgedAt: v.optional(v.number()),
+    nudgeCount: v.number(),
+    lastUpdateAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_task_id", ["taskId"])
+    .index("by_conversation_id_and_status", ["conversationId", "status"]),
+
+  taskUpdates: defineTable({
+    taskId: v.string(),
+    note: v.string(),
+    createdAt: v.number(),
+  }).index("by_task_id", ["taskId"]),
+
+  // Calendar events the lookahead sweep has already asked about, so it
+  // doesn't ask "anything to prep for your flight?" every morning.
+  lookaheadSeen: defineTable({
+    conversationId: v.string(),
+    eventKey: v.string(),
+    askedAt: v.number(),
+  }).index("by_conversation_id_and_event_key", ["conversationId", "eventKey"]),
 
   sendblueDedup: defineTable({
     handle: v.string(),

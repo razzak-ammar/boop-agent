@@ -155,6 +155,8 @@ export async function describeUserNow(): Promise<{
   isoDate: string;
   weekday: string;
   hourMinute: string;
+  /** Local 24-hour "HH:mm". */
+  clock24: string;
 }> {
   const stored = await getStoredUserTimezone();
   const timezone = stored ?? envFallback();
@@ -186,5 +188,6 @@ export async function describeUserNow(): Promise<{
     isoDate,
     weekday: fmt({ weekday: "long" }),
     hourMinute: fmt({ hour: "numeric", minute: "2-digit" }),
+    clock24: fmt({ hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
   };
 }

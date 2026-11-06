@@ -65,6 +65,16 @@ describe("tasks", () => {
     expect(moved?.latest).toBe("2026-11-29");
   });
 
+  it("stores hourly cadence and due time, validating both", async () => {
+    const t = convexTest(schema, modules);
+    const task = await t.mutation(api.tasks.create, { taskId: "h", conversationId, title: "Submit app", latest: "2026-11-06", dueTime: "20:00", importance: "high", cadenceDays: 1, cadenceHours: 1 });
+    expect(task?.cadenceHours).toBe(1);
+    await expect(t.mutation(api.tasks.create, { taskId: "h2", conversationId, title: "x", dueTime: "20:00", importance: "normal", cadenceDays: 1 })).rejects.toThrow();
+    await expect(t.mutation(api.tasks.create, { taskId: "h3", conversationId, title: "x", importance: "normal", cadenceDays: 1, cadenceHours: 0.1 })).rejects.toThrow();
+    const cleared = await t.mutation(api.tasks.update, { taskId: "h", conversationId, cadenceHours: null });
+    expect(cleared?.cadenceHours).toBeUndefined();
+  });
+
   it("remembers which calendar events were already asked about", async () => {
     const t = convexTest(schema, modules);
     await t.mutation(api.tasks.markEventsSeen, { conversationId, eventKeys: ["primary:a"] });

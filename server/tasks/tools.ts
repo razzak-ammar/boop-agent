@@ -5,12 +5,15 @@ import { buildSchedule } from "../reminder-schedule.js";
 import { describeUserNow } from "../timezone-config.js";
 import { defineRuntimeTool } from "../runtimes/tool.js";
 import { runtimeText, type RuntimeTool } from "../runtimes/types.js";
-import { defaultCadence, taskTiming, windowFromAnchor } from "./timing.js";
+import { defaultCadence, defaultCadenceHours, taskTiming, windowFromAnchor } from "./timing.js";
 
 const NAMESPACE = "boop-tasks";
 const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use local YYYY-MM-DD.");
 const clock = z.string().regex(/^\d{2}:\d{2}$/, "Use 24-hour HH:mm.");
 export const DEFAULT_LOOKAHEAD_TIME = "09:00";
+/** Task text marking the frequent pulse that serves hourly tasks. */
+export const PULSE_TASK = "Pulse: hourly task check-ins.";
+const PULSE_SECONDS = 15 * 60;
 
 const anchorShape = z.object({
   eventId: z.string().describe("Event id from search_calendar_events."),
@@ -30,7 +33,7 @@ async function getTask(taskId: string) {
   return await convex.query(api.tasks.get, { taskId });
 }
 
-export async function describeTask(task: Task, today: string, now = Date.now()) {
+export async function describeTask(task: Task, today: string, now = Date.now(), localClock?: string) {
   const updates = await convex.query(api.tasks.recentUpdates, { taskId: task.taskId, limit: 5 });
   return {
     taskId: task.taskId,
@@ -41,9 +44,11 @@ export async function describeTask(task: Task, today: string, now = Date.now()) 
     waitingOn: task.waitingOn,
     importance: task.importance,
     cadenceDays: task.cadenceDays,
+    cadenceHours: task.cadenceHours,
+    dueTime: task.dueTime,
     status: task.status,
     snoozedUntil: task.snoozedUntil,
-    timing: taskTiming(task, today, now),
+    timing: taskTiming(task, today, now, localClock),
     timesNudged: task.nudgeCount,
     lastNudgedAt: task.lastNudgedAt && new Date(task.lastNudgedAt).toISOString(),
     recentUpdates: updates.map((u) => ({ note: u.note, at: new Date(u.createdAt).toISOString() })),
@@ -52,7 +57,30 @@ export async function describeTask(task: Task, today: string, now = Date.now()) 
 
 async function findLookahead(conversationId: string) {
   const all = await convex.query(api.automations.list, {});
-  return all.find((a) => a.delivery === "lookahead" && a.notifyConversationId === conversationId);
+  return all.find((a) => a.delivery === "lookahead" && a.task !== PULSE_TASK && a.notifyConversationId === conversationId);
+}
+
+/** Hourly tasks need a sweep more often than the daily lookahead. It costs
+ * only database reads until a task is actually due. */
+export async function ensurePulse(conversationId: string) {
+  const all = await convex.query(api.automations.list, {});
+  const existing = all.find((a) => a.delivery === "lookahead" && a.task === PULSE_TASK && a.notifyConversationId === conversationId);
+  if (existing) {
+    if (!existing.enabled) await convex.mutation(api.automations.setEnabled, { automationId: existing.automationId, enabled: true });
+    return existing.automationId;
+  }
+  const automationId = id("auto");
+  await convex.mutation(api.automations.create, {
+    automationId,
+    name: "Task pulse",
+    task: PULSE_TASK,
+    integrations: [],
+    ...buildSchedule({ everySeconds: PULSE_SECONDS }, null),
+    delivery: "lookahead",
+    conversationId,
+    notifyConversationId: conversationId,
+  });
+  return automationId;
 }
 
 /** Make sure a daily lookahead sweep exists so tasks actually get nudged. An
@@ -83,7 +111,7 @@ export function createTaskTools(conversationId: string): RuntimeTool[] {
     defineRuntimeTool(
       NAMESPACE,
       "create_task",
-      'Track something the user must get done that has no fixed clock time: "sometime within a week after my flight back, remind me to do the reflection form", "I need to study for the exam but don\'t know when it is", "make sure I renew my license this month". The daily lookahead sweep nudges it on a cadence (and daily near the end) until it is marked done, and asks for missing info. Give a window (earliest/latest) when known; pass anchor instead when the window is relative to a calendar event (search the calendar first) so it follows the event if it moves. With no window, set waitingOn to what is unknown. Not for exact-time reminders (create_reminder) or deadline plans with milestones (create_goal).',
+      'Track something the user must get done that has no fixed clock time: "sometime within a week after my flight back, remind me to do the reflection form", "I need to study for the exam but don\'t know when it is", "make sure I renew my license this month". The daily lookahead sweep nudges it on a cadence (and daily near the end) until it is marked done, and asks for missing info. Give a window (earliest/latest) when known; pass anchor instead when the window is relative to a calendar event (search the calendar first) so it follows the event if it moves. With no window, set waitingOn to what is unknown. For "remind me every hour until X" or "sometime today before 8pm", set cadenceHours (and latest=today + dueTime when there is a deadline): it keeps checking in every N hours (skipping 22:00-08:00 unless the deadline is near), gives a last call within the hour of dueTime, and stops once marked done. Not for exact one-off clock reminders (create_reminder) or deadline plans with milestones (create_goal).',
       {
         title: z.string().trim().min(1).max(200).describe("What has to get done, in the user's words."),
         notes: z.string().max(2000).optional().describe("Context worth remembering: why it matters, links, consequences of missing it."),
@@ -93,6 +121,8 @@ export function createTaskTools(conversationId: string): RuntimeTool[] {
         waitingOn: z.string().max(200).optional().describe('What is still unknown, e.g. "exam date". The sweep asks about it.'),
         importance: z.enum(["normal", "high"]).default("normal").describe('"high" when missing it has real consequences or the user stresses it.'),
         cadenceDays: z.number().int().min(1).max(30).optional().describe("Days between nudges. Default: 2 (dated) or 3 (undated); 1/2 for high importance."),
+        cadenceHours: z.number().min(0.5).max(12).optional().describe('Check in every N hours instead of days: "every hour until" → 1. Defaults to 2 (1 if high) for a task due today with dueTime, 3 for "sometime today".'),
+        dueTime: clock.optional().describe('Local 24-hour deadline on the latest day, e.g. "20:00" for "before 8pm". Requires latest.'),
       },
       async (args) => {
         try {
@@ -102,6 +132,9 @@ export function createTaskTools(conversationId: string): RuntimeTool[] {
             ? windowFromAnchor(args.anchor.date, args.anchor.relation, args.anchor.days)
             : { earliest: args.earliest, latest: args.latest };
           const dated = Boolean(window.earliest || window.latest);
+          if (args.dueTime && !window.latest) return runtimeText("dueTime needs latest (the deadline's date).", false);
+          const sameDay = window.latest === tz.isoDate;
+          const cadenceHours = args.cadenceHours ?? (sameDay ? defaultCadenceHours(args.importance, Boolean(args.dueTime)) : undefined);
           const taskId = id("task");
           await convex.mutation(api.tasks.create, {
             taskId,
@@ -113,10 +146,13 @@ export function createTaskTools(conversationId: string): RuntimeTool[] {
             waitingOn: args.waitingOn,
             importance: args.importance,
             cadenceDays: args.cadenceDays ?? defaultCadence(args.importance, dated),
+            cadenceHours,
+            dueTime: args.dueTime,
           });
           const lookahead = await ensureLookahead(conversationId);
+          if (cadenceHours) await ensurePulse(conversationId);
           const task = (await getTask(taskId))!;
-          return runtimeText(JSON.stringify({ saved: true, task: await describeTask(task, tz.isoDate), lookahead }));
+          return runtimeText(JSON.stringify({ saved: true, task: await describeTask(task, tz.isoDate, Date.now(), tz.clock24), lookahead }));
         } catch (err) {
           return runtimeText(String(err), false);
         }
@@ -132,7 +168,7 @@ export function createTaskTools(conversationId: string): RuntimeTool[] {
         const tasks = await convex.query(api.tasks.list, { conversationId, status: args.status });
         return runtimeText(JSON.stringify({
           today: tz.isoDate,
-          tasks: await Promise.all(tasks.map((t) => describeTask(t, tz.isoDate))),
+          tasks: await Promise.all(tasks.map((t) => describeTask(t, tz.isoDate, Date.now(), tz.clock24))),
         }));
       },
     ),
@@ -151,6 +187,8 @@ export function createTaskTools(conversationId: string): RuntimeTool[] {
         waitingOn: z.string().max(200).nullable().optional(),
         importance: z.enum(["normal", "high"]).optional(),
         cadenceDays: z.number().int().min(1).max(30).optional(),
+        cadenceHours: z.number().min(0.5).max(12).nullable().optional().describe("Hourly check-ins; null goes back to daily cadence."),
+        dueTime: clock.nullable().optional(),
         status: z.enum(["open", "done", "dropped"]).optional(),
         snoozedUntil: localDate.nullable().optional().describe("Local date to resume nudging."),
       },
@@ -159,8 +197,9 @@ export function createTaskTools(conversationId: string): RuntimeTool[] {
           const window = anchor ? windowFromAnchor(anchor.date, anchor.relation, anchor.days) : {};
           const task = await convex.mutation(api.tasks.update, { ...args, ...window, anchor, conversationId });
           if (!task) return runtimeText("Task not found.", false);
+          if (task.cadenceHours && task.status === "open") await ensurePulse(conversationId);
           const tz = await describeUserNow();
-          return runtimeText(JSON.stringify({ saved: true, task: await describeTask(task, tz.isoDate) }));
+          return runtimeText(JSON.stringify({ saved: true, task: await describeTask(task, tz.isoDate, Date.now(), tz.clock24) }));
         } catch (err) {
           return runtimeText(String(err), false);
         }

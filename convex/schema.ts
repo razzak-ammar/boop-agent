@@ -283,6 +283,10 @@ export default defineSchema({
     importance: v.union(v.literal("normal"), v.literal("high")),
     // Days between nudges while the task is actionable.
     cadenceDays: v.number(),
+    // "Remind me every hour until...": overrides cadenceDays when set.
+    cadenceHours: v.optional(v.number()),
+    // Local "HH:mm" deadline on the latest day ("before 8pm").
+    dueTime: v.optional(v.string()),
     status: v.union(v.literal("open"), v.literal("done"), v.literal("dropped")),
     snoozedUntil: v.optional(v.string()),
     lastNudgedAt: v.optional(v.number()),

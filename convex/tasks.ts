@@ -17,6 +17,12 @@ function checkDates(...dates: Array<string | undefined>) {
   if (dates.some((d) => d !== undefined && !localDate.test(d)))
     throw new Error("Task dates must be local YYYY-MM-DD.");
 }
+const clock = /^([01]\d|2[0-3]):[0-5]\d$/;
+function checkHourly(cadenceHours?: number | null, dueTime?: string | null) {
+  if (cadenceHours != null && (cadenceHours < 0.5 || cadenceHours > 12))
+    throw new Error("Hourly cadence must be between 0.5 and 12 hours.");
+  if (dueTime != null && !clock.test(dueTime)) throw new Error("dueTime must be 24-hour HH:mm.");
+}
 function checkWindow(earliest?: string, latest?: string) {
   if (earliest && latest && earliest > latest)
     throw new Error("The task window must start on or before it ends.");
@@ -41,9 +47,13 @@ export const create = mutation({
     waitingOn: v.optional(v.string()),
     importance,
     cadenceDays: v.number(),
+    cadenceHours: v.optional(v.number()),
+    dueTime: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     checkDates(args.earliest, args.latest, args.anchor?.date);
+    checkHourly(args.cadenceHours, args.dueTime);
+    if (args.dueTime && !args.latest) throw new Error("dueTime needs a latest date.");
     checkWindow(args.earliest, args.latest);
     if (!Number.isInteger(args.cadenceDays) || args.cadenceDays < 1 || args.cadenceDays > 30)
       throw new Error("Nudge cadence must be 1-30 days.");
@@ -75,11 +85,14 @@ export const update = mutation({
     waitingOn: v.optional(v.union(v.string(), v.null())),
     importance: v.optional(importance),
     cadenceDays: v.optional(v.number()),
+    cadenceHours: v.optional(v.union(v.number(), v.null())),
+    dueTime: v.optional(v.union(v.string(), v.null())),
     status: v.optional(status),
     snoozedUntil: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, { taskId, conversationId, clearWindow, ...fields }) => {
     checkDates(fields.earliest, fields.latest, fields.anchor?.date, fields.snoozedUntil ?? undefined);
+    checkHourly(fields.cadenceHours, fields.dueTime);
     if (fields.cadenceDays !== undefined && (!Number.isInteger(fields.cadenceDays) || fields.cadenceDays < 1 || fields.cadenceDays > 30))
       throw new Error("Nudge cadence must be 1-30 days.");
     const task = await byTaskId(ctx, taskId);
@@ -93,6 +106,7 @@ export const update = mutation({
       patch.earliest = undefined;
       patch.latest = undefined;
       patch.anchor = undefined;
+      patch.dueTime = undefined;
     }
     const earliest = "earliest" in patch ? (patch.earliest as string | undefined) : task.earliest;
     const latest = "latest" in patch ? (patch.latest as string | undefined) : task.latest;

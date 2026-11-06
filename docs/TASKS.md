@@ -7,6 +7,8 @@ until they're done. Talk to it normally:
 - "Sometime within a week of my flight back to Atlanta, remind me to fill out the reflection form."
 - "I need to study for the exam, I just don't know when it is yet."
 - "Make sure I renew my license this month, it's a big deal if I don't."
+- "Remind me every hour until I submit the application."
+- "Sometime today I need to call the bank before 5pm, keep checking on me."
 - Replies: "done", "not yet, Thursday", "help me find the form", "stop asking until Monday", or a Telegram swipe-reply to the nudge.
 
 ## What gets stored
@@ -31,7 +33,21 @@ When/whether to nudge is computed in code ([server/tasks/timing.ts](../server/ta
 | `undated` | every `cadenceDays` (asks about `waitingOn`) |
 | `snoozed` | not until `snoozedUntil` |
 
-Never more than once a day. A progress note from the user resets the clock.
+Daily-cadence tasks are nudged at most once a day. A progress note from the user resets the clock.
+
+### Hourly check-ins
+
+A task with `cadenceHours` ("every hour until…", or anything due today) is
+checked by a **task pulse** automation every 15 minutes. It's created
+automatically with the first hourly task. The pulse only reads the database and
+calls the model only when a task is due. Rules:
+
+- nudge every `cadenceHours` (default 2, 1 for high importance, when there's a
+  `dueTime`; 3 for "sometime today"),
+- no hourly pings 22:00-08:00, unless the deadline is within the hour,
+- a last call within the hour before `dueTime`,
+- one "did it happen?" right after `dueTime` passes, then the daily overdue nudge,
+- it stops as soon as the task is marked done, dropped, or snoozed.
 Default cadence is 2 days for dated tasks and 3 for undated ones (1 and 2 for
 high importance).
 

@@ -13,7 +13,7 @@ import { describeUserNow } from "../timezone-config.js";
 import { computePacing } from "../goals/pacing.js";
 import { runProactiveModel, SKIP } from "../goals/checkin.js";
 import { addDays, windowFromAnchor } from "./timing.js";
-import { describeTask } from "./tools.js";
+import { describeTask, PULSE_TASK } from "./tools.js";
 
 const HORIZON_DAYS = 10;
 const MAX_EVENTS = 40;
@@ -35,6 +35,8 @@ Calendar (only events with alreadyAsked=false):
 - Ask at most 2 calendar questions. Make each answerable in a word or two.
 - Name events by title and day; flights by code and route when given.
 
+Hourly tasks (cadenceHours set, e.g. "remind me every hour until I submit it"): keep it to one or two lines, vary the wording from earlier nudges in the conversation, and mention time left before dueTime when there is one ("2 hours left before 8pm"). On "deadline within the hour" make it a clear last call; on "deadline just passed" ask whether it got done.
+
 If nothing is worth saying today, reply exactly ${SKIP}.
 
 ${BARE_CLOCK_RULE}
@@ -46,6 +48,7 @@ ASKED: <comma-separated eventKeys you asked about, or none>`;
 
 interface LookaheadAutomation {
   automationId: string;
+  task?: string;
   notifyConversationId?: string;
   conversationId?: string;
 }
@@ -111,7 +114,10 @@ export async function runLookahead(a: LookaheadAutomation): Promise<LookaheadRes
   const conversationId = a.notifyConversationId ?? a.conversationId;
   if (!conversationId) throw new Error("Lookahead has no destination conversation.");
   const tz = await describeUserNow();
-  const integrations = (await listEnabledIntegrations()).map((i) => i.name);
+  // The pulse runs every 15 minutes and only handles hourly/same-day tasks:
+  // no calendar scan, no goals, and no model call unless one is due.
+  const pulse = a.task === PULSE_TASK;
+  const integrations = pulse ? [] : (await listEnabledIntegrations()).map((i) => i.name);
   const hasCalendar = integrations.includes("googlecalendar");
 
   let tasks = await listOpen(conversationId);
@@ -119,11 +125,12 @@ export async function runLookahead(a: LookaheadAutomation): Promise<LookaheadRes
   if (anchorIssues.size || tasks.some((t) => t.anchor)) tasks = await listOpen(conversationId);
   const now = Date.now();
   const taskBlocks = await Promise.all(tasks.map(async (t) => ({
-    ...(await describeTask(t, tz.isoDate, now)),
+    ...(await describeTask(t, tz.isoDate, now, tz.clock24)),
     ...(anchorIssues.has(t.taskId) ? { anchorIssue: anchorIssues.get(t.taskId) } : {}),
   })));
   // Upcoming tasks (window not open yet) stay out of the message entirely.
-  const relevantTasks = taskBlocks.filter((t) => t.timing.state !== "upcoming" && t.timing.state !== "snoozed");
+  const relevantTasks = taskBlocks.filter((t) => t.timing.state !== "upcoming" && t.timing.state !== "snoozed"
+    && (!pulse || t.cadenceHours !== undefined));
 
   let events: Array<Record<string, unknown>> = [];
   let calendarNote = hasCalendar ? "" : "Calendar is not connected.";
@@ -148,7 +155,7 @@ export async function runLookahead(a: LookaheadAutomation): Promise<LookaheadRes
     }
   }
 
-  const goals = await convex.query(api.goals.list, { conversationId, status: "active" });
+  const goals = pulse ? [] : await convex.query(api.goals.list, { conversationId, status: "active" });
   const goalBlocks = goals.map((g) => {
     const p = computePacing(g, tz.isoDate);
     return { title: g.title, deadline: g.deadline, daysToDeadline: p.daysToDeadline, status: p.status, percent: p.percent };
@@ -162,6 +169,7 @@ export async function runLookahead(a: LookaheadAutomation): Promise<LookaheadRes
   const history = await convex.query(api.messages.recent, { conversationId, limit: 20 });
   const prompt = [
     `Current local time: ${tz.now} (${tz.timezone}); today is ${tz.isoDate}.`,
+    pulse ? "This is an intraday check-in: raise only the due tasks, in one or two lines. Do not bring up the calendar." : "",
     `Open tasks:\n${relevantTasks.length ? JSON.stringify(relevantTasks, null, 1) : "(none)"}`,
     goalBlocks.length ? `Active goals:\n${JSON.stringify(goalBlocks)}` : "",
     calendarNote,

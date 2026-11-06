@@ -6,6 +6,8 @@
 
 **Saved library:** durable notes, named collections, and Telegram link/screenshot capture. See [Saved notes and collections](docs/SAVED.md).
 
+**Goals and check-ins:** track deadlines and milestones, get model-written progress check-ins, and ask for a plan for today. See [Goals and check-ins](docs/GOALS.md).
+
 
 **This fork's Telegram/Codex alpha:** see [TELEGRAM_ALPHA.md](./TELEGRAM_ALPHA.md)
 for private phone chat without Sendblue, recurring reminder delivery, and setup.

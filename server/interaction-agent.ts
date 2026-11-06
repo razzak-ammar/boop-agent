@@ -15,6 +15,7 @@ import { loadMemoryProfile } from "./memory/profile.js";
 import { spawnExecutionAgent } from "./execution-agent.js";
 import { listEnabledIntegrations } from "./integrations/registry.js";
 import { createAutomationTools } from "./automation-tools.js";
+import { createGoalTools } from "./goals/tools.js";
 import { createDraftDecisionTools } from "./draft-tools.js";
 import { createSelfTools } from "./self-tools.js";
 import {
@@ -286,6 +287,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     ...createMemoryTools(opts.conversationId, { runtimeConfig, turnId, onWrite: content => savedMemories.push(content) }),
     ...createSavedTools(opts.conversationId, inboundImageStorageIds),
     ...createAutomationTools(opts.conversationId, opts.content, receipt => savedScheduleReceipts.push(receipt)),
+    ...createGoalTools(opts.conversationId),
     ...createDraftDecisionTools(opts.conversationId, runtimeConfig),
     ...createSelfTools(),
     defineRuntimeTool(
@@ -390,6 +392,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
               "mcp__boop-automations__list_automations",
               "mcp__boop-automations__toggle_automation",
               "mcp__boop-automations__delete_automation",
+              "mcp__boop-goals__*",
               "mcp__boop-context__read_conversation",
               ...(trackerTools.length ? ["mcp__timetracker__*"] : []),
               "mcp__boop-draft-decisions__get_draft",

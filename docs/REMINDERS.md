@@ -28,7 +28,8 @@ clock times; a repeated fall clock time has one occurrence, not two.
 Plain reminders use `create_reminder` and deliver the saved text without model
 inference at firing time. Research/integration work uses `create_automation`
 and still runs an agent. Existing cron automations keep their behavior. Both
-support pause, deletion, inspection, and `reschedule_automation`.
+support pause, deletion, inspection, and `reschedule_automation`. Check-ins on
+tracked goals and daily plans are a third kind; see [Goals and check-ins](GOALS.md).
 
 The dashboard shows one-time versus recurring schedules, full next dates,
 completion, and delivery failures. Completed one-time reminders cannot be

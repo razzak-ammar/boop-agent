@@ -10,6 +10,7 @@ vi.mock("../server/notifications.js", () => ({
   sendConversationNotification: vi.fn(),
 }));
 vi.mock("../server/broadcast.js", () => ({ broadcast: vi.fn() }));
+vi.mock("../server/goals/checkin.js", () => ({ runGoalCheckin: vi.fn() }));
 vi.mock("../server/timezone-config.js", () => ({
   getUserTimezone: vi.fn().mockResolvedValue("America/New_York"),
 }));
@@ -17,6 +18,7 @@ import { convex } from "../server/convex-client.js";
 import { spawnExecutionAgent } from "../server/execution-agent.js";
 import { sendConversationNotification } from "../server/notifications.js";
 import { tickAutomations } from "../server/automations.js";
+import { runGoalCheckin } from "../server/goals/checkin.js";
 const reminder = {
   automationId: "auto_test",
   name: "Take laundry out",
@@ -123,5 +125,56 @@ it("keeps legacy cron tasks on the model-backed execution path", async () => {
     success: true,
     agentId: "agent_fixture",
     nextRunAt: expect.any(Number),
+  });
+});
+
+describe("goal check-ins", () => {
+  const checkin = {
+    ...reminder,
+    automationId: "auto_checkin",
+    name: "Check-in: Exam review",
+    delivery: "checkin",
+    reminderText: undefined,
+    goalId: "goal_fixture",
+  };
+  function claimCheckin() {
+    vi.mocked(convex.query).mockResolvedValue([checkin]);
+    vi.mocked(convex.mutation).mockImplementation(async (ref) =>
+      getFunctionName(ref) === "automations:claimRun"
+        ? checkin
+        : getFunctionName(ref) === "automations:renewClaim"
+          ? true
+          : null,
+    );
+  }
+  const calls = (name: string) =>
+    vi.mocked(convex.mutation).mock.calls.filter(([ref]) => getFunctionName(ref) === name);
+
+  it("sends the model-written message as is", async () => {
+    claimCheckin();
+    vi.mocked(runGoalCheckin).mockResolvedValueOnce({ text: "You're at 6/12 — 3 to go before Saturday. How many today?" });
+    await tickAutomations();
+    expect(runGoalCheckin).toHaveBeenCalledWith(expect.objectContaining({ goalId: "goal_fixture" }));
+    expect(sendConversationNotification).toHaveBeenCalledExactlyOnceWith(
+      "telegram:fixture",
+      "You're at 6/12 — 3 to go before Saturday. How many today?",
+    );
+    expect(spawnExecutionAgent).not.toHaveBeenCalled();
+  });
+
+  it("stays quiet when the model decides nothing is worth sending", async () => {
+    claimCheckin();
+    vi.mocked(runGoalCheckin).mockResolvedValueOnce({});
+    await tickAutomations();
+    expect(sendConversationNotification).not.toHaveBeenCalled();
+    expect(calls("automations:finishRun")[0]?.[1]).toMatchObject({ success: true });
+  });
+
+  it("disables the check-in once its goal is finished or dropped", async () => {
+    claimCheckin();
+    vi.mocked(runGoalCheckin).mockResolvedValueOnce({ inactive: true });
+    await tickAutomations();
+    expect(sendConversationNotification).not.toHaveBeenCalled();
+    expect(calls("automations:setEnabled")[0]?.[1]).toEqual({ automationId: "auto_checkin", enabled: false });
   });
 });

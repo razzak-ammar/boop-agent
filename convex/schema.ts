@@ -194,8 +194,11 @@ export default defineSchema({
     integrations: v.array(v.string()),
     schedule: v.string(),
     scheduleKind: v.optional(v.union(v.literal("cron"), v.literal("once"), v.literal("interval"), v.literal("calendar"))),
-    delivery: v.optional(v.union(v.literal("agent"), v.literal("reminder"))),
+    delivery: v.optional(v.union(v.literal("agent"), v.literal("reminder"), v.literal("checkin"))),
     reminderText: v.optional(v.string()),
+    // Goal check-ins: the goal to check on. Absent on a "checkin" delivery
+    // means a daily plan across every active goal.
+    goalId: v.optional(v.string()),
     intervalMs: v.optional(v.number()),
     intervalDays: v.optional(v.number()),
     anchorAt: v.optional(v.number()),
@@ -219,6 +222,38 @@ export default defineSchema({
     .index("by_automation_id", ["automationId"])
     .index("by_enabled", ["enabled"])
     .index("by_enabled_and_next_run_at", ["enabled", "nextRunAt"]),
+
+  // Deadlines the user is working toward (an exam, a project), with dated
+  // milestones. Progress is a number in the goal's unit so check-ins can
+  // compute pacing instead of the model guessing it.
+  goals: defineTable({
+    goalId: v.string(),
+    conversationId: v.string(),
+    title: v.string(),
+    // Local calendar date YYYY-MM-DD in the user's timezone.
+    deadline: v.string(),
+    unit: v.optional(v.string()),
+    total: v.optional(v.number()),
+    progress: v.number(),
+    milestones: v.array(v.object({
+      date: v.string(),
+      label: v.string(),
+      target: v.optional(v.number()),
+    })),
+    notes: v.optional(v.string()),
+    status: v.union(v.literal("active"), v.literal("done"), v.literal("dropped")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_goal_id", ["goalId"])
+    .index("by_conversation_id_and_status", ["conversationId", "status"]),
+
+  goalUpdates: defineTable({
+    goalId: v.string(),
+    progress: v.number(),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_goal_id", ["goalId"]),
 
   sendblueDedup: defineTable({
     handle: v.string(),

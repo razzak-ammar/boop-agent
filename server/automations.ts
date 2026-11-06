@@ -6,6 +6,7 @@ import { sendConversationNotification } from "./notifications.js";
 import { broadcast } from "./broadcast.js";
 import { getUserTimezone } from "./timezone-config.js";
 import { followingRun, nextCronRun } from "./reminder-schedule.js";
+import { runGoalCheckin } from "./goals/checkin.js";
 
 export function nextRunFor(schedule: string, timezone = "UTC"): number | null {
   try {
@@ -53,10 +54,17 @@ async function runAutomation(automationId: string): Promise<void> {
   let result: string | undefined;
   let agentId: string | undefined;
   let error: string | undefined;
+  let goalInactive = false;
   try {
     if (a.delivery === "reminder") {
       if (!a.reminderText) throw new Error("Reminder text is missing.");
       result = a.reminderText;
+    } else if (a.delivery === "checkin") {
+      // The model may decide there's nothing worth sending; no result means
+      // no message, but the run still counts as successful.
+      const res = await runGoalCheckin(a);
+      result = res.text;
+      goalInactive = res.inactive === true;
     } else {
       const res = await spawnExecutionAgent({
         task: `AUTOMATION "${a.name}": ${a.task}`,
@@ -77,7 +85,9 @@ async function runAutomation(automationId: string): Promise<void> {
     if (a.notifyConversationId && result) {
       const text = redactPhoneNumbers(a.delivery === "reminder"
         ? `Reminder: ${result}`
-        : `[${a.name}]\n\n${result}`);
+        : a.delivery === "checkin"
+          ? result
+          : `[${a.name}]\n\n${result}`);
       await sendConversationNotification(a.notifyConversationId, text);
       await convex.mutation(api.messages.send, {
         conversationId: a.notifyConversationId,
@@ -105,6 +115,8 @@ async function runAutomation(automationId: string): Promise<void> {
     error,
     nextRunAt,
   });
+  if (goalInactive)
+    await convex.mutation(api.automations.setEnabled, { automationId, enabled: false });
   broadcast(error ? "automation_failed" : "automation_completed", {
     ...claim,
     ...(error ? { error } : {}),

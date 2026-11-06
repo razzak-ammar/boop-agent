@@ -8,7 +8,7 @@ import { createClaudeMcpServer } from "./runtimes/claude.js";
 import { defineRuntimeTool } from "./runtimes/tool.js";
 import { runtimeText, type RuntimeTool } from "./runtimes/types.js";
 const NAMESPACE = "boop-automations";
-const scheduleShape = {
+export const scheduleShape = {
   localTime: z.string().optional().describe('Local clock HH:mm[:ss] in 24-hour time. PREFERRED for "at 8:30pm", "tonight", "today", or "tomorrow": send localTime="20:30" and day="today" (or "tomorrow"). The application resolves the calendar date.'),
   day: z.string().optional().describe('With localTime: "today" (default), "tomorrow", or exact YYYY-MM-DD. Never substitute the UTC/server calendar date for today.'),
   schedule: z
@@ -49,7 +49,7 @@ const scheduleShape = {
       "Calendar-day interval in the saved timezone, preserving local clock across DST: every other day=2, every two weeks=14. Use at for the first desired occurrence.",
     ),
 };
-const scheduleHelp =
+export const scheduleHelp =
   "Choose exactly one: localTime + day (once, preferred for clock-only requests), at (exact date), afterSeconds (once), schedule (cron), everySeconds (elapsed interval), or everyDays (calendar interval). Intervals may additionally specify at or localTime + day. Ask for a timezone before local wall-clock schedules if unset; relative delays need none. A passed time must not silently move to tomorrow; ask the user. Never invent a time when the user has not specified one.";
 function id() {
   return `auto_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;

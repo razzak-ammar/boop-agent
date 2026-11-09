@@ -16,6 +16,7 @@ import { spawnExecutionAgent } from "./execution-agent.js";
 import { listEnabledIntegrations } from "./integrations/registry.js";
 import { createAutomationTools } from "./automation-tools.js";
 import { createGoalTools } from "./goals/tools.js";
+import { loadActiveGoalsNote } from "./goals/context.js";
 import { createTaskTools } from "./tasks/tools.js";
 import { createDraftDecisionTools } from "./draft-tools.js";
 import { createSelfTools } from "./self-tools.js";
@@ -160,6 +161,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   const systemPrompt = opts.kind === "proactive"
     ? PROACTIVE_SYSTEM
     : buildInteractionPrompt(integrations, await describeUserNow()) + await loadMemoryProfile() +
+      await loadActiveGoalsNote(opts.conversationId) +
       (integrations.includes("timetracker") ? await loadPendingTimeTrackerNote(opts.conversationId) : "");
 
   const userText = opts.mediaError

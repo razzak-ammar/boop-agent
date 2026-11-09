@@ -27,6 +27,17 @@ missed milestones.
 
 Creating a goal does not add calendar events. Ask for those separately, as before.
 
+## Where goals show up
+
+The debug dashboard's **Goals** tab lists goals from every conversation with
+their pacing, milestones, notes and progress history. It is read-only; change
+goals by talking to Boop.
+
+On each user turn, the conversation's active goals are added to the interaction
+agent's system prompt with their pacing, soonest deadline first (up to 20). The
+agent knows them without a tool call and uses `list_goals` for progress history,
+scheduled check-ins or goals beyond that limit.
+
 ## Check-ins
 
 By default, `create_goal` schedules a check-in at 18:00 local time on the

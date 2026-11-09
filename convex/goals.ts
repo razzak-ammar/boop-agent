@@ -124,6 +124,14 @@ export const list = query({
   },
 });
 
+/** Every conversation's goals, newest first, for the debug dashboard. */
+export const listForDashboard = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("goals").order("desc").take(200);
+  },
+});
+
 export const recentUpdates = query({
   args: { goalId: v.string(), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {

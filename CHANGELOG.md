@@ -8,6 +8,11 @@ Format:
 
 ---
 
+## Unreleased — Goals in the dashboard and agent context
+
+- Added: a read-only Goals tab in the debug dashboard with pacing, milestones, notes and progress history.
+- Added: active goals and their pacing are included in the interaction agent's system prompt on every user turn.
+
 ## Unreleased — Optional local Apple data
 
 - Added: optional Mac-only, read-only local Apple data connectors for iMessage/SMS history, Apple Notes, and Apple Reminders. The integration is off by default and requires both the master Apple data toggle and a per-source connect action before tools are exposed.

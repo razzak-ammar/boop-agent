@@ -10,6 +10,7 @@ import {
   DashboardSquare01Icon,
   ArrowShrink02Icon,
   Settings01Icon,
+  Target02Icon,
   Moon02Icon,
   Sun03Icon,
 } from "@hugeicons/core-free-icons";
@@ -18,6 +19,7 @@ import { useSocket } from "./lib/useSocket.js";
 import { DashboardPanel } from "./components/DashboardPanel.js";
 import { AgentsPanel } from "./components/AgentsPanel.js";
 import { AutomationsPanel } from "./components/AutomationsPanel.js";
+import { GoalsPanel } from "./components/GoalsPanel.js";
 import { MemoryPanel } from "./components/MemoryPanel.js";
 import { SavedPanel } from "./components/SavedPanel.js";
 import { EventsPanel } from "./components/EventsPanel.js";
@@ -32,6 +34,7 @@ type View =
   | "dashboard"
   | "agents"
   | "automations"
+  | "goals"
   | "memory"
   | "saved"
   | "events"
@@ -90,6 +93,7 @@ const NAV_ICONS: Record<View, any> = {
   dashboard: DashboardSquare01Icon,
   agents: MachineRobotIcon,
   automations: WorkflowCircle03Icon,
+  goals: Target02Icon,
   memory: AiBrain02Icon,
   saved: AiBrain02Icon,
   events: Activity01Icon,
@@ -102,6 +106,7 @@ const NAV: { id: View; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
   { id: "agents", label: "Agents" },
   { id: "automations", label: "Automations" },
+  { id: "goals", label: "Goals" },
   { id: "memory", label: "Memory" },
   { id: "saved", label: "Saved" },
   { id: "events", label: "Events" },
@@ -390,6 +395,7 @@ export function App() {
             {view === "dashboard" && <DashboardPanel isDark={isDark} />}
             {view === "agents" && <AgentsPanel isDark={isDark} />}
             {view === "automations" && <AutomationsPanel isDark={isDark} />}
+            {view === "goals" && <GoalsPanel isDark={isDark} demoMode={demoModeEnabled} />}
             {view === "memory" && (
               <MemoryPanel isDark={isDark} demoMode={demoModeEnabled} />
             )}

@@ -53,6 +53,16 @@ describe("goals", () => {
     expect(await t.query(api.goals.list, { conversationId: "telegram:fixture", status: "done" })).toHaveLength(1);
   });
 
+  it("lists every status across conversations for the dashboard", async () => {
+    const t = await setup();
+    await t.mutation(api.goals.create, {
+      goalId: "goal_other", conversationId: "telegram:other", title: "Essay", deadline: "2026-11-20", milestones: [],
+    });
+    await t.mutation(api.goals.update, { goalId: "goal_test", conversationId: "telegram:fixture", status: "done" });
+    const goals = await t.query(api.goals.listForDashboard, {});
+    expect(goals.map((g) => [g.goalId, g.status])).toEqual([["goal_other", "active"], ["goal_test", "done"]]);
+  });
+
   it("rejects dates that aren't local YYYY-MM-DD", async () => {
     const t = convexTest(schema, modules);
     await expect(t.mutation(api.goals.create, {

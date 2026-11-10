@@ -67,9 +67,7 @@ const SETTINGS: Setting[] = [
   },
 ];
 
-const RUNTIME_SETTING_COUNT = SETTINGS.length + 7;
-/** Same key as server/freetime/checkin.ts BUSY_CALENDARS_KEY. */
-const BUSY_CALENDARS_KEY = "freetime_busy_calendars";
+const RUNTIME_SETTING_COUNT = SETTINGS.length + 5;
 const DEMO_PHONE_NUMBER = "+11111111111";
 
 const RUNTIME_OPTIONS: Option<RuntimeChoice>[] = [
@@ -198,8 +196,6 @@ export function SettingsPanel({
             <TimezoneRow key={s.key} setting={s} isDark={isDark} />
           ),
         )}
-        <QuietHoursRow isDark={isDark} />
-        <BusyCalendarsRow isDark={isDark} />
         <BrowserSection isDark={isDark} />
         <AppleSection isDark={isDark} />
         <DemoModeRow isDark={isDark} />
@@ -512,7 +508,7 @@ function DemoModeRow({ isDark }: { isDark: boolean }) {
   );
 }
 
-function SettingShell({
+export function SettingShell({
   label,
   description,
   debugLine,
@@ -839,193 +835,6 @@ function ToggleRow({
             }`}
           />
         </button>
-      }
-    />
-  );
-}
-
-interface QuietHoursValue {
-  start: string;
-  end: string;
-  enabled: boolean;
-  description: string;
-}
-
-function QuietHoursRow({ isDark }: { isDark: boolean }) {
-  const [value, setValue] = useState<QuietHoursValue | null>(null);
-  const [draft, setDraft] = useState({ start: "22:00", end: "08:00" });
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/quiet-hours", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : Promise.reject()))
-      .then((q: QuietHoursValue) => {
-        setValue(q);
-        setDraft({ start: q.start, end: q.end });
-      })
-      .catch(() => setError("Couldn't load quiet hours."));
-  }, []);
-
-  async function save(patch: Partial<Pick<QuietHoursValue, "start" | "end" | "enabled">>) {
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/quiet-hours", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(body.error ?? "Couldn't save.");
-        if (value) setDraft({ start: value.start, end: value.end });
-        return;
-      }
-      setValue(body);
-      setDraft({ start: body.start, end: body.end });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const enabled = value?.enabled ?? true;
-  const input = `rounded-xl border px-2.5 py-1.5 text-sm mono ${
-    isDark ? "border-white/10 bg-white/5 text-zinc-100" : "border-zinc-200 bg-white text-zinc-900"
-  } ${enabled ? "" : "opacity-50"}`;
-
-  return (
-    <SettingShell
-      label="Quiet hours"
-      description={`Boop won't start a conversation in this window: no free-time check-ins or hourly task nudges. Reminders you scheduled for a specific time still go out. You can also text Boop, e.g. "quiet hours 11pm to 7am".${
-        error ? ` ${error}` : ""
-      }`}
-      debugLine={`settings.quiet_hours = ${value ? JSON.stringify({ start: value.start, end: value.end, enabled: value.enabled }) : "…"}`}
-      isDark={isDark}
-      control={
-        <div className="flex items-center gap-2">
-          <input
-            type="time"
-            aria-label="Quiet hours start"
-            value={draft.start}
-            disabled={!value || saving || !enabled}
-            onChange={(e) => setDraft((d) => ({ ...d, start: e.target.value }))}
-            onBlur={() => value && draft.start !== value.start && save({ start: draft.start })}
-            className={input}
-          />
-          <span className={`text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}`}>to</span>
-          <input
-            type="time"
-            aria-label="Quiet hours end"
-            value={draft.end}
-            disabled={!value || saving || !enabled}
-            onChange={(e) => setDraft((d) => ({ ...d, end: e.target.value }))}
-            onBlur={() => value && draft.end !== value.end && save({ end: draft.end })}
-            className={input}
-          />
-          <button
-            onClick={() => save({ enabled: !enabled })}
-            disabled={!value || saving}
-            role="switch"
-            aria-checked={enabled}
-            aria-label="Toggle quiet hours"
-            className={`toggle-switch relative ml-1 inline-flex h-6 w-11 shrink-0 items-center rounded-full ${
-              !value || saving ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
-            } ${enabled ? "bg-emerald-500" : isDark ? "bg-zinc-700" : "bg-zinc-300"}`}
-          >
-            <span
-              className={`toggle-thumb inline-block h-5 w-5 transform rounded-full bg-white shadow ${
-                enabled ? "translate-x-5" : "translate-x-0.5"
-              }`}
-            />
-          </button>
-        </div>
-      }
-    />
-  );
-}
-
-function BusyCalendarsRow({ isDark }: { isDark: boolean }) {
-  const value = useQuery(api.settings.get, { key: BUSY_CALENDARS_KEY });
-  const setSetting = useMutation(api.settings.set);
-  const clearSetting = useMutation(api.settings.clear);
-  const [calendars, setCalendars] = useState<string[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/freetime/calendars", { cache: "no-store" })
-      .then(async (res) => {
-        const body = await res.json().catch(() => ({}));
-        if (cancelled) return;
-        if (!res.ok) setError(body.error ?? "Couldn't load calendars.");
-        else setCalendars(body.calendars ?? []);
-      })
-      .catch(() => !cancelled && setError("Couldn't reach the server."));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  let selected: string[] = [];
-  try {
-    const parsed = value ? JSON.parse(value) : [];
-    if (Array.isArray(parsed)) selected = parsed.filter((n): n is string => typeof n === "string");
-  } catch {
-    /* treat a malformed value as unset */
-  }
-  const isOn = (name: string) => selected.some((s) => s.toLowerCase() === name.toLowerCase());
-
-  async function toggle(name: string) {
-    const next = isOn(name)
-      ? selected.filter((s) => s.toLowerCase() !== name.toLowerCase())
-      : [...selected, name];
-    if (next.length) await setSetting({ key: BUSY_CALENDARS_KEY, value: JSON.stringify(next) });
-    else await clearSetting({ key: BUSY_CALENDARS_KEY });
-  }
-
-  // Names that were saved but no longer exist still show, so they can be removed.
-  const names = [...new Set([...(calendars ?? []), ...selected])];
-  const pill = (on: boolean) =>
-    `rounded-full border px-3 py-1 text-xs transition-colors ${
-      on
-        ? "border-emerald-500 bg-emerald-500 text-white"
-        : isDark
-          ? "border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10"
-          : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
-    }`;
-
-  return (
-    <SettingShell
-      label="Busy calendars for free-time check-ins"
-      description={
-        selected.length
-          ? "Only events on these calendars mean you're busy. When one ends and you have time, Boop may check in. Other calendars are ignored for timing, though their all-day items still count as context."
-          : "No calendars picked, so every calendar counts as busy time. Pick the ones that mean you're actually busy (classes, meetings) so shared or availability calendars don't hide your free time."
-      }
-      debugLine={`settings.${BUSY_CALENDARS_KEY} = ${value === undefined ? "…" : value === null ? "(unset: all calendars)" : value}`}
-      isDark={isDark}
-      control={
-        <div className="flex max-w-[26rem] flex-wrap gap-2 lg:justify-end">
-          {error && !names.length ? (
-            <span className={`text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}`}>{error}</span>
-          ) : calendars === null && !names.length ? (
-            <span className={`text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}`}>Loading calendars…</span>
-          ) : (
-            names.map((name) => (
-              <button
-                key={name}
-                type="button"
-                onClick={() => toggle(name)}
-                disabled={value === undefined}
-                aria-pressed={isOn(name)}
-                className={pill(isOn(name))}
-              >
-                {name}
-              </button>
-            ))
-          )}
-        </div>
       }
     />
   );

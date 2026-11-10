@@ -312,6 +312,31 @@ export default defineSchema({
     askedAt: v.number(),
   }).index("by_conversation_id_and_event_key", ["conversationId", "eventKey"]),
 
+  // What the free-time heartbeat did: every model wake-up, and every event end
+  // it decided to let pass. Routine "nothing due" ticks aren't stored. Shown
+  // in the dashboard's Heartbeat tab; rows older than 30 days are pruned.
+  heartbeatEvents: defineTable({
+    conversationId: v.string(),
+    at: v.number(),
+    trigger: v.optional(v.union(v.literal("event_ended"), v.literal("heartbeat"))),
+    outcome: v.union(
+      v.literal("skipped"),
+      v.literal("quiet"),
+      v.literal("sending"),
+      v.literal("sent"),
+      v.literal("send_failed"),
+      v.literal("error"),
+    ),
+    reason: v.string(),
+    eventTitle: v.optional(v.string()),
+    freeMinutes: v.optional(v.number()),
+    message: v.optional(v.string()),
+    model: v.optional(v.string()),
+    inputTokens: v.optional(v.number()),
+    outputTokens: v.optional(v.number()),
+    durationMs: v.optional(v.number()),
+  }).index("by_at", ["at"]),
+
   sendblueDedup: defineTable({
     handle: v.string(),
     claimedAt: v.number(),

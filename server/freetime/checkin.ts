@@ -16,6 +16,7 @@ import { addDays, taskTiming } from "../tasks/timing.js";
 import { describeTask } from "../tasks/tools.js";
 import { parseLookaheadReply, type LookaheadResult } from "../tasks/lookahead.js";
 import { decideFreeTime, endKey, FREE_TIME, type BusyEvent, type FreeTimeDecision } from "./gate.js";
+import type { Id } from "../../convex/_generated/dataModel.js";
 import { getQuietHours } from "../quiet-hours-store.js";
 import { describeQuietHours, inQuietHours, type QuietHours } from "../quiet-hours.js";
 
@@ -115,56 +116,119 @@ function describeWindow(d: FreeTimeDecision, timezone: string, quiet: QuietHours
   return `No more events today. About ${d.freeMinutes} minutes until quiet hours (${describeQuietHours(quiet)}).`;
 }
 
-export async function runFreeTimeCheck(a: FreeTimeAutomation, alsoDue?: string[]): Promise<LookaheadResult> {
-  const conversationId = a.notifyConversationId ?? a.conversationId;
-  if (!conversationId) throw new Error("Free-time check has no destination conversation.");
+type Snapshot =
+  | { ready: false; reason: string }
+  | {
+      ready: true;
+      tz: Awaited<ReturnType<typeof describeUserNow>>;
+      now: number;
+      quiet: QuietHours;
+      busyCalendars: Set<string> | null;
+      calendar: CalendarMatch[];
+      events: BusyEvent[];
+      workable: Awaited<ReturnType<typeof listOpenTasks>>;
+      goals: Awaited<ReturnType<typeof listActiveGoals>>;
+      history: Awaited<ReturnType<typeof recentMessages>>;
+      lastMessageAt?: number;
+      lastCheckAt?: number;
+      decision: FreeTimeDecision;
+    };
+
+const listOpenTasks = (conversationId: string) => convex.query(api.tasks.list, { conversationId, status: "open" });
+const listActiveGoals = (conversationId: string) => convex.query(api.goals.list, { conversationId, status: "active" });
+const recentMessages = (conversationId: string) => convex.query(api.messages.recent, { conversationId, limit: 20 });
+
+/** Reads everything the gate needs and runs it. Writes nothing, so the
+ * dashboard can show what the heartbeat would do right now. With
+ * `stopEarly`, quiet hours return before the calendar is read. */
+async function snapshot(conversationId: string, stopEarly: boolean): Promise<Snapshot> {
   const tz = await describeUserNow();
-  if (!tz.isExplicit) return {};
+  if (!tz.isExplicit) return { ready: false, reason: "No timezone saved yet; tell Boop your timezone." };
   const integrations = (await listEnabledIntegrations()).map((i) => i.name);
-  if (!integrations.includes("googlecalendar")) return {};
+  if (!integrations.includes("googlecalendar")) return { ready: false, reason: "Google Calendar isn't connected." };
 
   const now = Date.now();
   const [tasks, goals, history, lastCheck, busySetting, quiet] = await Promise.all([
-    convex.query(api.tasks.list, { conversationId, status: "open" }),
-    convex.query(api.goals.list, { conversationId, status: "active" }),
-    convex.query(api.messages.recent, { conversationId, limit: 20 }),
+    listOpenTasks(conversationId),
+    listActiveGoals(conversationId),
+    recentMessages(conversationId),
     convex.query(api.settings.get, { key: lastCheckKey(conversationId) }),
     convex.query(api.settings.get, { key: BUSY_CALENDARS_KEY }),
     getQuietHours(),
   ]);
-  // Cheapest check first: overnight, nothing else needs reading.
-  if (inQuietHours(tz.clock24, quiet)) return {};
+  if (stopEarly && inQuietHours(tz.clock24, quiet)) return { ready: false, reason: "quiet hours" };
   const busyCalendars = parseBusyCalendars(busySetting);
   const workable = tasks.filter((t) => {
-    const state = taskTiming(t, tz.isoDate, now, tz.clock24).state;
+    const state = taskTiming(t, tz.isoDate, now, tz.clock24, quiet).state;
     return state !== "upcoming" && state !== "snoozed";
   });
 
   const calendar = await todaysEvents(tz.isoDate);
-  if (typeof calendar === "string") {
-    console.warn("[freetime] calendar unavailable:", calendar);
-    return {};
-  }
+  if (typeof calendar === "string") return { ready: false, reason: `Calendar unavailable: ${calendar}` };
   const events = busyEvents(calendar, busyCalendars);
   const window = FREE_TIME.endWindowMinutes * 60000;
   const endKeys = events.filter((e) => e.end <= now && now - e.end < window).map(endKey);
   const handled = new Set(endKeys.length
     ? await convex.query(api.tasks.seenEvents, { conversationId, eventKeys: endKeys })
     : []);
-
+  const lastMessageAt = history.length ? Math.max(...history.map((m) => m.createdAt)) : undefined;
+  const lastCheckAt = lastCheck ? Number(lastCheck) : undefined;
   const decision = decideFreeTime({
-    now,
-    clock: tz.clock24,
-    events,
-    handled,
-    lastMessageAt: history.length ? Math.max(...history.map((m) => m.createdAt)) : undefined,
-    lastCheckAt: lastCheck ? Number(lastCheck) : undefined,
-    hasWork: workable.length > 0 || goals.length > 0,
-    quiet,
+    now, clock: tz.clock24, events, handled, lastMessageAt, lastCheckAt,
+    hasWork: workable.length > 0 || goals.length > 0, quiet,
   });
+  return { ready: true, tz, now, quiet, busyCalendars, calendar, events, workable, goals, history, lastMessageAt, lastCheckAt, decision };
+}
+
+type HeartbeatRecord = Omit<Parameters<typeof convex.mutation<typeof api.heartbeatEvents.record>>[1], "conversationId" | "at" | "reason" | "trigger" | "freeMinutes" | "eventTitle">;
+
+/** Logging for the dashboard must never break the check itself. */
+async function recordEvent(conversationId: string, now: number, d: FreeTimeDecision, extra: HeartbeatRecord) {
+  try {
+    return await convex.mutation(api.heartbeatEvents.record, {
+      conversationId,
+      at: now,
+      reason: d.reason,
+      freeMinutes: Number.isFinite(d.freeMinutes) ? d.freeMinutes : undefined,
+      ...(d.trigger ? { trigger: d.trigger } : {}),
+      ...(d.ended ? { eventTitle: d.ended.title } : {}),
+      ...extra,
+    });
+  } catch (err) {
+    console.warn("[freetime] could not record heartbeat event", err);
+    return undefined;
+  }
+}
+
+/** Called after delivery for a check that wrote a message. */
+export async function markHeartbeatDelivered(id: string | undefined, sent: boolean) {
+  if (!id) return;
+  try {
+    await convex.mutation(api.heartbeatEvents.setOutcome, { id: id as Id<"heartbeatEvents">, outcome: sent ? "sent" : "send_failed" });
+  } catch (err) {
+    console.warn("[freetime] could not update heartbeat event", err);
+  }
+}
+
+export async function runFreeTimeCheck(a: FreeTimeAutomation, alsoDue?: string[]): Promise<LookaheadResult> {
+  const conversationId = a.notifyConversationId ?? a.conversationId;
+  if (!conversationId) throw new Error("Free-time check has no destination conversation.");
+  const snap = await snapshot(conversationId, true);
+  if (!snap.ready) {
+    if (snap.reason !== "quiet hours") console.warn("[freetime]", snap.reason);
+    return {};
+  }
+  const { tz, now, quiet, busyCalendars, calendar, workable, goals, history, decision } = snap;
   if (decision.markHandled.length)
     await convex.mutation(api.tasks.markEventsSeen, { conversationId, eventKeys: decision.markHandled });
-  if (!decision.trigger) return {};
+  if (!decision.trigger) {
+    // An event end that was let pass is worth showing; routine ticks aren't.
+    if (decision.markHandled.length) {
+      const ended = snap.events.find((e) => endKey(e) === decision.markHandled.at(-1));
+      await recordEvent(conversationId, now, { ...decision, ...(ended ? { ended } : {}) }, { outcome: "skipped" });
+    }
+    return {};
+  }
 
   console.log(`[freetime] waking model: ${decision.trigger} (${decision.reason})`);
   await convex.mutation(api.settings.set, { key: lastCheckKey(conversationId), value: String(now) });
@@ -195,17 +259,73 @@ export async function runFreeTimeCheck(a: FreeTimeAutomation, alsoDue?: string[]
     `Write the message now (with the NUDGED line), or ${SKIP}.`,
   ].filter(Boolean).join("\n\n");
 
-  const result = await runProactiveModel({
-    prompt,
-    systemPrompt: FREETIME_SYSTEM + await loadMemoryProfile(),
-    tools: [],
-    conversationId,
-    model: freeTimeModel(),
-  });
+  const model = freeTimeModel();
+  const started = Date.now();
+  let result: Awaited<ReturnType<typeof runProactiveModel>>;
+  try {
+    result = await runProactiveModel({
+      prompt,
+      systemPrompt: FREETIME_SYSTEM + await loadMemoryProfile(),
+      tools: [],
+      conversationId,
+      model,
+    });
+  } catch (err) {
+    await recordEvent(conversationId, now, decision, { outcome: "error", model, durationMs: Date.now() - started, message: String(err).slice(0, 500) });
+    throw err;
+  }
+  const usage = {
+    model: result.usage.model || model,
+    inputTokens: result.usage.inputTokens,
+    outputTokens: result.usage.outputTokens,
+    durationMs: Date.now() - started,
+  };
   const parsed = parseLookaheadReply(result.text.trim(), new Set(workable.map((t) => t.taskId)), new Set());
   if (!parsed.message) {
     console.log("[freetime] model chose to stay quiet");
+    await recordEvent(conversationId, now, decision, { outcome: "quiet", ...usage });
     return {};
   }
-  return { text: parsed.message, nudged: parsed.nudged, asked: [] };
+  const heartbeatEventId = await recordEvent(conversationId, now, decision, { outcome: "sending", message: parsed.message, ...usage });
+  return { text: parsed.message, nudged: parsed.nudged, asked: [], heartbeatEventId };
+}
+
+function clockLabel(timezone: string, ms: number | undefined) {
+  return ms === undefined ? undefined : clockIn(timezone, ms);
+}
+
+/** What the heartbeat would do right now, for the dashboard. Writes nothing
+ * and never calls the model. */
+export async function freeTimeStatus(conversationId: string) {
+  const snap = await snapshot(conversationId, false);
+  if (!snap.ready) return { ready: false as const, reason: snap.reason };
+  const { tz, now, quiet, decision, events, lastMessageAt, lastCheckAt, busyCalendars } = snap;
+  const sinceMessage = lastMessageAt === undefined ? undefined : Math.floor((now - lastMessageAt) / 60000);
+  const upcomingEnds = events
+    .filter((e) => e.end > now)
+    .sort((a, b) => a.end - b.end)
+    .slice(0, 5)
+    .map((e) => ({ title: e.title, start: e.start, end: e.end, startLabel: clockIn(tz.timezone, e.start), endLabel: clockIn(tz.timezone, e.end) }));
+  return {
+    ready: true as const,
+    timezone: tz.timezone,
+    now,
+    nowLabel: clockIn(tz.timezone, now),
+    wouldWake: decision.trigger !== undefined,
+    trigger: decision.trigger,
+    reason: decision.reason,
+    freeMinutes: Number.isFinite(decision.freeMinutes) ? decision.freeMinutes : null,
+    next: decision.next ? { title: decision.next.title, startLabel: clockIn(tz.timezone, decision.next.start) } : null,
+    upcomingEnds,
+    lastCheckAt: lastCheckAt ?? null,
+    lastCheckLabel: clockLabel(tz.timezone, lastCheckAt) ?? null,
+    lastMessageAt: lastMessageAt ?? null,
+    minutesSinceMessage: sinceMessage ?? null,
+    quiet: { ...quiet, description: describeQuietHours(quiet), active: inQuietHours(tz.clock24, quiet) },
+    busyCalendars: busyCalendars ? [...busyCalendars] : null,
+    openTasks: snap.workable.length,
+    activeGoals: snap.goals.length,
+    model: freeTimeModel(),
+    rules: FREE_TIME,
+  };
 }

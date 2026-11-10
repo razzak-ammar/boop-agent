@@ -8,7 +8,7 @@ import { getUserTimezone } from "./timezone-config.js";
 import { followingRun, nextCronRun } from "./reminder-schedule.js";
 import { runGoalCheckin } from "./goals/checkin.js";
 import { recordLookaheadDelivered, runLookahead, type LookaheadResult } from "./tasks/lookahead.js";
-import { runFreeTimeCheck } from "./freetime/checkin.js";
+import { markHeartbeatDelivered, runFreeTimeCheck } from "./freetime/checkin.js";
 import { FREETIME_TASK } from "./tasks/tools.js";
 
 export function nextRunFor(schedule: string, timezone = "UTC"): number | null {
@@ -135,6 +135,7 @@ async function executeClaimed(
   } finally {
     clearInterval(heartbeat);
   }
+  if (lookahead?.heartbeatEventId) await markHeartbeatDelivered(lookahead.heartbeatEventId, sent);
   const timezone = a.timezone ?? (await getUserTimezone());
   let nextRunAt: number | undefined;
   try {

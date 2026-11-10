@@ -110,7 +110,13 @@ async function listOpen(conversationId: string) {
   return await convex.query(api.tasks.list, { conversationId, status: "open" });
 }
 
-export interface LookaheadResult { text?: string; nudged?: string[]; asked?: string[] }
+export interface LookaheadResult {
+  text?: string;
+  nudged?: string[];
+  asked?: string[];
+  /** Free-time checks: the dashboard log row to mark sent or failed. */
+  heartbeatEventId?: string;
+}
 
 export async function runLookahead(a: LookaheadAutomation, alsoDue?: string[]): Promise<LookaheadResult> {
   const conversationId = a.notifyConversationId ?? a.conversationId;

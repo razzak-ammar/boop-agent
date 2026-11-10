@@ -36,14 +36,14 @@ Change it any of three ways:
 
 - Text Boop: "quiet hours 11pm to 7am", "don't message me before 9", "turn off quiet hours".
   (`configure_quiet_hours` tool.)
-- The dashboard: **Settings → Quiet hours**.
+- The dashboard: **Heartbeat → Quiet hours**.
 - The API: `GET /quiet-hours` returns `{ start, end, enabled, description }`, and
   `PUT /quiet-hours` with any of `{ "start": "23:00", "end": "07:00", "enabled": true }` saves
   a change. Times are local 24-hour; an end earlier than the start means overnight.
 
 ## Which calendars mean "busy"
 
-Pick them in the dashboard under **Settings → Busy calendars for free-time check-ins**
+Pick them in the dashboard under **Heartbeat → Busy calendars**
 (stored as the `freetime_busy_calendars` setting). Only timed events on those calendars
 block time, and only their ends trigger a check-in. That keeps shared calendars, like a lab's
 availability calendar or a room booking calendar, from making you look booked all day. Those
@@ -63,3 +63,12 @@ waits until something changes. Tasks it raises count as nudged, the same as the 
 On the Codex runtime this check runs on `gpt-6.1-terra` by default; set `BOOP_FREETIME_MODEL`
 to another Codex model to change it. On the Claude runtime it uses your configured model.
 Usage is recorded under the `proactive` source.
+
+## The Heartbeat tab
+
+The debug dashboard's **Heartbeat** tab is where all of this lives:
+
+- **Status**: what the heartbeat sees right now. Whether it's asleep for quiet hours, watching, or due to check in; how long you're free; when the next busy event ends; when it last woke the model; and when the chat last had a message. It's computed by `GET /freetime/status` without calling the model or changing anything.
+- **Settings**: the on/off switch for free-time check-ins, quiet hours, and busy calendars.
+- **Activity**: a live log of every decision that reached the model, plus event ends it let pass. Rows show the trigger (after an event, or the hourly check), the outcome (Sent, Stayed quiet, Let it pass, Send failed, Error), the message it wrote, and the model, tokens and time taken. Rows are kept for 30 days in the `heartbeatEvents` table.
+

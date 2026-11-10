@@ -10,7 +10,7 @@
 
 **Goals and check-ins:** track deadlines and milestones, get model-written progress check-ins, and ask for a plan for today. See [Goals and check-ins](docs/GOALS.md).
 
-**Free-time check-ins:** when an event ends and you have time, Boop may ask what you're up to and suggest the open task that fits. See [Free-time check-ins](docs/FREETIME.md).
+**Free-time check-ins:** when an event ends and you have time, Boop may ask what you're up to and suggest the open task that fits. Settings and a live log of every check-in are in the dashboard's Heartbeat tab. See [Free-time check-ins](docs/FREETIME.md).
 
 
 **This fork's Telegram/Codex alpha:** see [TELEGRAM_ALPHA.md](./TELEGRAM_ALPHA.md)

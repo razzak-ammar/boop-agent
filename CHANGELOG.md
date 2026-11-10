@@ -8,6 +8,13 @@ Format:
 
 ---
 
+## Unreleased — One message per moment, and linking what the user mentions
+
+- Fixed: a reminder and a goal check-in due at the same time for the same chat went out as two separate messages about the same thing. Everything due for one chat in a tick is now claimed together; check-ins and lookaheads run one at a time and the first one that sends a message works the same-moment reminders into it. If it has nothing to say, the reminders still go out on their own.
+- Changed: check-in and lookahead prompts share a no-repeat rule: don't re-ask something a message from the last few hours already asked and the user hasn't answered.
+- Fixed: several create_task calls in one turn could each create a "Task pulse", so hourly nudges could fire twice. Pulse creation is now serialized per conversation, and extra pulses left from before are turned off the next time one is ensured.
+- Added: open tasks, the next 7 days of reminders/check-ins, and one-off reminders sent in the last 7 days are included in the interaction agent's system prompt on every user turn (like active goals), with rules to match new mentions against them, update instead of duplicating, carry known context into new task notes, infer dates from related items, and not ask questions the user just answered.
+
 ## Unreleased — Goals in the dashboard and agent context
 
 - Added: a read-only Goals tab in the debug dashboard with pacing, milestones, notes and progress history.

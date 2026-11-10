@@ -61,10 +61,24 @@ async function findLookahead(conversationId: string) {
 }
 
 /** Hourly tasks need a sweep more often than the daily lookahead. It costs
- * only database reads until a task is actually due. */
-export async function ensurePulse(conversationId: string) {
+ * only database reads until a task is actually due. Several create_task calls
+ * in one turn run in parallel, so creation is serialized per conversation and
+ * any extra pulses from before that are turned off. */
+const pulseInFlight = new Map<string, Promise<string>>();
+export function ensurePulse(conversationId: string): Promise<string> {
+  const pending = pulseInFlight.get(conversationId);
+  if (pending) return pending;
+  const run = ensurePulseOnce(conversationId).finally(() => pulseInFlight.delete(conversationId));
+  pulseInFlight.set(conversationId, run);
+  return run;
+}
+
+async function ensurePulseOnce(conversationId: string) {
   const all = await convex.query(api.automations.list, {});
-  const existing = all.find((a) => a.delivery === "lookahead" && a.task === PULSE_TASK && a.notifyConversationId === conversationId);
+  const pulses = all.filter((a) => a.delivery === "lookahead" && a.task === PULSE_TASK && a.notifyConversationId === conversationId);
+  const [existing, ...extras] = [...pulses].sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.createdAt - b.createdAt);
+  for (const extra of extras.filter((e) => e.enabled))
+    await convex.mutation(api.automations.setEnabled, { automationId: extra.automationId, enabled: false });
   if (existing) {
     if (!existing.enabled) await convex.mutation(api.automations.setEnabled, { automationId: existing.automationId, enabled: true });
     return existing.automationId;

@@ -11,7 +11,7 @@ import { loadMemoryProfile } from "../memory/profile.js";
 import { BARE_CLOCK_RULE } from "../interaction-prompt.js";
 import { describeUserNow } from "../timezone-config.js";
 import { computePacing } from "../goals/pacing.js";
-import { runProactiveModel, SKIP } from "../goals/checkin.js";
+import { alsoDueBlock, NO_REPEAT_RULE, runProactiveModel, SKIP } from "../goals/checkin.js";
 import { addDays, windowFromAnchor } from "./timing.js";
 import { describeTask, PULSE_TASK } from "./tools.js";
 
@@ -39,6 +39,7 @@ Hourly tasks (cadenceHours set, e.g. "remind me every hour until I submit it"): 
 
 If nothing is worth saying today, reply exactly ${SKIP}.
 
+${NO_REPEAT_RULE}
 ${BARE_CLOCK_RULE}
 Never claim you changed or checked anything beyond what's supplied. Never expose phone numbers.
 
@@ -110,7 +111,7 @@ async function listOpen(conversationId: string) {
 
 export interface LookaheadResult { text?: string; nudged?: string[]; asked?: string[] }
 
-export async function runLookahead(a: LookaheadAutomation): Promise<LookaheadResult> {
+export async function runLookahead(a: LookaheadAutomation, alsoDue?: string[]): Promise<LookaheadResult> {
   const conversationId = a.notifyConversationId ?? a.conversationId;
   if (!conversationId) throw new Error("Lookahead has no destination conversation.");
   const tz = await describeUserNow();
@@ -177,6 +178,7 @@ export async function runLookahead(a: LookaheadAutomation): Promise<LookaheadRes
     history.length
       ? `Recent conversation (oldest first):\n${history.map((m) => `${m.role.toUpperCase()} [${new Date(m.createdAt).toISOString()}]: ${m.content.slice(0, 600)}`).join("\n")}`
       : "",
+    alsoDueBlock(alsoDue),
     `Write the message now (with the NUDGED/ASKED lines), or ${SKIP}.`,
   ].filter(Boolean).join("\n\n");
 

@@ -179,3 +179,71 @@ describe("goal check-ins", () => {
     expect(calls("automations:setEnabled")[0]?.[1]).toEqual({ automationId: "auto_checkin", enabled: false });
   });
 });
+
+describe("same-moment delivery to one chat", () => {
+  const checkin = {
+    ...reminder,
+    automationId: "auto_checkin",
+    name: "Check-in: Exam review",
+    delivery: "checkin",
+    reminderText: undefined,
+    goalId: "goal_fixture",
+  };
+  const prep = { ...reminder, automationId: "auto_prep", reminderText: "How is exam prep going?" };
+  function dueTogether() {
+    const rows = new Map([checkin, prep].map((a) => [a.automationId, a]));
+    const claimedIds = new Set<string>();
+    vi.mocked(convex.query).mockResolvedValue([prep, checkin]);
+    vi.mocked(convex.mutation).mockImplementation(async (ref, args: any) => {
+      const name = getFunctionName(ref);
+      if (name === "automations:claimRun") {
+        if (claimedIds.has(args.automationId)) return null;
+        claimedIds.add(args.automationId);
+        return rows.get(args.automationId);
+      }
+      if (name === "automations:renewClaim") return true;
+      return null;
+    });
+  }
+  const finishes = () =>
+    vi.mocked(convex.mutation).mock.calls
+      .filter(([ref]) => getFunctionName(ref) === "automations:finishRun")
+      .map(([, args]) => args as any);
+
+  it("folds a reminder into a check-in sent at the same time", async () => {
+    dueTogether();
+    vi.mocked(runGoalCheckin).mockResolvedValueOnce({ text: "Exam Thursday: 0/8 lectures so far. How many can you do tonight?" });
+    await tickAutomations();
+    expect(runGoalCheckin).toHaveBeenCalledWith(expect.objectContaining({ goalId: "goal_fixture" }), ["How is exam prep going?"]);
+    expect(sendConversationNotification).toHaveBeenCalledExactlyOnceWith(
+      "telegram:fixture",
+      "Exam Thursday: 0/8 lectures so far. How many can you do tonight?",
+    );
+    expect(finishes()).toHaveLength(2);
+    expect(finishes().every((f) => f.success)).toBe(true);
+  });
+
+  it("still sends the reminder when the check-in has nothing to say", async () => {
+    dueTogether();
+    vi.mocked(runGoalCheckin).mockResolvedValueOnce({});
+    await tickAutomations();
+    expect(sendConversationNotification).toHaveBeenCalledExactlyOnceWith(
+      "telegram:fixture",
+      "Reminder: How is exam prep going?",
+    );
+  });
+
+  it("claims the reminder before the slow check-in so a second tick can't send it", async () => {
+    dueTogether();
+    let release!: () => void;
+    vi.mocked(runGoalCheckin).mockImplementationOnce(
+      () => new Promise((resolve) => { release = () => resolve({ text: "Combined" }); }),
+    );
+    const first = tickAutomations();
+    await new Promise((r) => setTimeout(r, 0));
+    await tickAutomations();
+    release();
+    await first;
+    expect(sendConversationNotification).toHaveBeenCalledExactlyOnceWith("telegram:fixture", "Combined");
+  });
+});

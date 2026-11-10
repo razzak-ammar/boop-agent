@@ -21,6 +21,7 @@ import { createBrowserRouter } from "./browser-routes.js";
 import { createAppleRouter } from "./apple-routes.js";
 import { closeLocalBrowser } from "./browser/launcher.js";
 import { createChangelogRouter } from "./changelog.js";
+import { createFreeTimeRouter } from "./freetime/routes.js";
 import {
   getRuntimeConfig,
   resolveModelInput,
@@ -140,6 +141,7 @@ async function main() {
   app.use("/browser", createBrowserRouter());
   app.use("/apple", createAppleRouter());
   app.use("/changelog", createChangelogRouter());
+  app.use("/freetime", createFreeTimeRouter());
 
   app.post("/agents/:id/cancel", (req, res) => {
     const ok = cancelAgent(req.params.id);

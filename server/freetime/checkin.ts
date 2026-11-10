@@ -66,17 +66,29 @@ async function todaysEvents(isoDate: string): Promise<CalendarMatch[] | string> 
   return found.events;
 }
 
-/** Comma-separated calendar names whose events don't block time (e.g. a
- * "Deadlines" calendar with timed due dates). */
-function ignoredCalendars(): Set<string> {
-  return new Set((process.env.BOOP_FREETIME_IGNORE_CALENDARS ?? "")
-    .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean));
+/** Calendars whose events mean "I'm busy" (dashboard Settings → Free-time
+ * check-ins). Others, like a lab's shared availability calendar, don't count
+ * for timing and stay out of the prompt. Unset or empty means all count. */
+export const BUSY_CALENDARS_KEY = "freetime_busy_calendars";
+
+export function parseBusyCalendars(raw: string | null | undefined): Set<string> | null {
+  if (!raw) return null;
+  try {
+    const names = JSON.parse(raw);
+    if (!Array.isArray(names)) return null;
+    const set = new Set(names.filter((n): n is string => typeof n === "string").map((n) => n.trim().toLowerCase()).filter(Boolean));
+    return set.size ? set : null;
+  } catch {
+    return null;
+  }
 }
 
-export function busyEvents(events: CalendarMatch[], ignore = ignoredCalendars()): BusyEvent[] {
+const countsAsBusy = (e: CalendarMatch, busy: Set<string> | null) => !busy || busy.has(e.calendarName.trim().toLowerCase());
+
+export function busyEvents(events: CalendarMatch[], busyCalendars: Set<string> | null): BusyEvent[] {
   const busy: BusyEvent[] = [];
   for (const e of events) {
-    if (e.allDay || !e.end || ignore.has(e.calendarName.toLowerCase())) continue;
+    if (e.allDay || !e.end || !countsAsBusy(e, busyCalendars)) continue;
     const start = Date.parse(e.start);
     const end = Date.parse(e.end);
     if (Number.isFinite(start) && Number.isFinite(end) && end > start)
@@ -109,12 +121,14 @@ export async function runFreeTimeCheck(a: FreeTimeAutomation, alsoDue?: string[]
   if (!integrations.includes("googlecalendar")) return {};
 
   const now = Date.now();
-  const [tasks, goals, history, lastCheck] = await Promise.all([
+  const [tasks, goals, history, lastCheck, busySetting] = await Promise.all([
     convex.query(api.tasks.list, { conversationId, status: "open" }),
     convex.query(api.goals.list, { conversationId, status: "active" }),
     convex.query(api.messages.recent, { conversationId, limit: 20 }),
     convex.query(api.settings.get, { key: lastCheckKey(conversationId) }),
+    convex.query(api.settings.get, { key: BUSY_CALENDARS_KEY }),
   ]);
+  const busyCalendars = parseBusyCalendars(busySetting);
   const workable = tasks.filter((t) => {
     const state = taskTiming(t, tz.isoDate, now, tz.clock24).state;
     return state !== "upcoming" && state !== "snoozed";
@@ -125,7 +139,7 @@ export async function runFreeTimeCheck(a: FreeTimeAutomation, alsoDue?: string[]
     console.warn("[freetime] calendar unavailable:", calendar);
     return {};
   }
-  const events = busyEvents(calendar);
+  const events = busyEvents(calendar, busyCalendars);
   const window = FREE_TIME.endWindowMinutes * 60000;
   const endKeys = events.filter((e) => e.end <= now && now - e.end < window).map(endKey);
   const handled = new Set(endKeys.length
@@ -153,7 +167,10 @@ export async function runFreeTimeCheck(a: FreeTimeAutomation, alsoDue?: string[]
     const p = computePacing(g, tz.isoDate);
     return { title: g.title, deadline: g.deadline, daysToDeadline: p.daysToDeadline, status: p.status, percent: p.percent, next: p.next };
   });
+  // All-day items (due dates, trips) from any calendar are useful context;
+  // timed events only from the calendars that mean the user is busy.
   const today = calendar
+    .filter((e) => e.allDay || countsAsBusy(e, busyCalendars))
     .map((e) => `- ${e.allDay ? "all day" : `${clockIn(tz.timezone, Date.parse(e.start))}–${e.end ? clockIn(tz.timezone, Date.parse(e.end)) : "?"}`}  ${e.title} [${e.calendarName}]`)
     .join("\n");
 

@@ -25,8 +25,14 @@ Because the cooldown is checked before the model is called, a message the model 
 always sent. Any message in the chat (yours, a reminder, another check-in) resets the
 cooldown, so free-time check-ins never stack up behind other messages.
 
-All-day events are not busy time. To make a calendar's timed events not count as busy (a
-"Deadlines" calendar, say), list it in `BOOP_FREETIME_IGNORE_CALENDARS` (comma-separated names).
+## Which calendars mean "busy"
+
+Pick them in the dashboard under **Settings → Busy calendars for free-time check-ins**
+(stored as the `freetime_busy_calendars` setting). Only timed events on those calendars
+block time, and only their ends trigger a check-in. That keeps shared calendars, like a lab's
+availability calendar or a room booking calendar, from making you look booked all day. Those
+calendars are also left out of the prompt, except for all-day items (due dates, trips), which
+are context from any calendar. With nothing picked, every calendar counts.
 
 ## What the model sees
 

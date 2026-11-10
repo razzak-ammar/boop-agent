@@ -67,7 +67,9 @@ const SETTINGS: Setting[] = [
   },
 ];
 
-const RUNTIME_SETTING_COUNT = SETTINGS.length + 5;
+const RUNTIME_SETTING_COUNT = SETTINGS.length + 6;
+/** Same key as server/freetime/checkin.ts BUSY_CALENDARS_KEY. */
+const BUSY_CALENDARS_KEY = "freetime_busy_calendars";
 const DEMO_PHONE_NUMBER = "+11111111111";
 
 const RUNTIME_OPTIONS: Option<RuntimeChoice>[] = [
@@ -196,6 +198,7 @@ export function SettingsPanel({
             <TimezoneRow key={s.key} setting={s} isDark={isDark} />
           ),
         )}
+        <BusyCalendarsRow isDark={isDark} />
         <BrowserSection isDark={isDark} />
         <AppleSection isDark={isDark} />
         <DemoModeRow isDark={isDark} />
@@ -835,6 +838,92 @@ function ToggleRow({
             }`}
           />
         </button>
+      }
+    />
+  );
+}
+
+function BusyCalendarsRow({ isDark }: { isDark: boolean }) {
+  const value = useQuery(api.settings.get, { key: BUSY_CALENDARS_KEY });
+  const setSetting = useMutation(api.settings.set);
+  const clearSetting = useMutation(api.settings.clear);
+  const [calendars, setCalendars] = useState<string[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/freetime/calendars", { cache: "no-store" })
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) setError(body.error ?? "Couldn't load calendars.");
+        else setCalendars(body.calendars ?? []);
+      })
+      .catch(() => !cancelled && setError("Couldn't reach the server."));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  let selected: string[] = [];
+  try {
+    const parsed = value ? JSON.parse(value) : [];
+    if (Array.isArray(parsed)) selected = parsed.filter((n): n is string => typeof n === "string");
+  } catch {
+    /* treat a malformed value as unset */
+  }
+  const isOn = (name: string) => selected.some((s) => s.toLowerCase() === name.toLowerCase());
+
+  async function toggle(name: string) {
+    const next = isOn(name)
+      ? selected.filter((s) => s.toLowerCase() !== name.toLowerCase())
+      : [...selected, name];
+    if (next.length) await setSetting({ key: BUSY_CALENDARS_KEY, value: JSON.stringify(next) });
+    else await clearSetting({ key: BUSY_CALENDARS_KEY });
+  }
+
+  // Names that were saved but no longer exist still show, so they can be removed.
+  const names = [...new Set([...(calendars ?? []), ...selected])];
+  const pill = (on: boolean) =>
+    `rounded-full border px-3 py-1 text-xs transition-colors ${
+      on
+        ? "border-emerald-500 bg-emerald-500 text-white"
+        : isDark
+          ? "border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10"
+          : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+    }`;
+
+  return (
+    <SettingShell
+      label="Busy calendars for free-time check-ins"
+      description={
+        selected.length
+          ? "Only events on these calendars mean you're busy. When one ends and you have time, Boop may check in. Other calendars are ignored for timing, though their all-day items still count as context."
+          : "No calendars picked, so every calendar counts as busy time. Pick the ones that mean you're actually busy (classes, meetings) so shared or availability calendars don't hide your free time."
+      }
+      debugLine={`settings.${BUSY_CALENDARS_KEY} = ${value === undefined ? "…" : value === null ? "(unset: all calendars)" : value}`}
+      isDark={isDark}
+      control={
+        <div className="flex max-w-[26rem] flex-wrap gap-2 lg:justify-end">
+          {error && !names.length ? (
+            <span className={`text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}`}>{error}</span>
+          ) : calendars === null && !names.length ? (
+            <span className={`text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}`}>Loading calendars…</span>
+          ) : (
+            names.map((name) => (
+              <button
+                key={name}
+                type="button"
+                onClick={() => toggle(name)}
+                disabled={value === undefined}
+                aria-pressed={isOn(name)}
+                className={pill(isOn(name))}
+              >
+                {name}
+              </button>
+            ))
+          )}
+        </div>
       }
     />
   );

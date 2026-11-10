@@ -16,7 +16,7 @@ decides whether to wake the model:
 
 | Wakes the model | Never wakes it |
 |---|---|
-| A timed event ended in the last 10 minutes (once per event) | During an event, or 22:00–08:00 |
+| A timed event ended in the last 10 minutes (once per event) | During an event, or during quiet hours |
 | About once an hour while you're free (the heartbeat) | Gaps under 20 minutes before the next event |
 | | No open tasks or active goals |
 | | Within 45 minutes of any message after an event ends, or 90 minutes for the heartbeat |
@@ -24,6 +24,22 @@ decides whether to wake the model:
 Because the cooldown is checked before the model is called, a message the model writes is
 always sent. Any message in the chat (yours, a reminder, another check-in) resets the
 cooldown, so free-time check-ins never stack up behind other messages.
+
+## Quiet hours
+
+A do-not-disturb window for messages Boop starts on its own: free-time check-ins and hourly
+task nudges. It's 22:00 to 08:00 by default and stored as the `quiet_hours` setting. Reminders you
+scheduled for a specific time still go out, and an hourly task whose deadline is within the hour
+can still get its last call.
+
+Change it any of three ways:
+
+- Text Boop: "quiet hours 11pm to 7am", "don't message me before 9", "turn off quiet hours".
+  (`configure_quiet_hours` tool.)
+- The dashboard: **Settings → Quiet hours**.
+- The API: `GET /quiet-hours` returns `{ start, end, enabled, description }`, and
+  `PUT /quiet-hours` with any of `{ "start": "23:00", "end": "07:00", "enabled": true }` saves
+  a change. Times are local 24-hour; an end earlier than the start means overnight.
 
 ## Which calendars mean "busy"
 

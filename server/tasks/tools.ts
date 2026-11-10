@@ -6,6 +6,8 @@ import { describeUserNow } from "../timezone-config.js";
 import { defineRuntimeTool } from "../runtimes/tool.js";
 import { runtimeText, type RuntimeTool } from "../runtimes/types.js";
 import { defaultCadence, defaultCadenceHours, taskTiming, windowFromAnchor } from "./timing.js";
+import { getQuietHours, setQuietHours } from "../quiet-hours-store.js";
+import { describeQuietHours, type QuietHours } from "../quiet-hours.js";
 
 const NAMESPACE = "boop-tasks";
 const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use local YYYY-MM-DD.");
@@ -36,8 +38,11 @@ async function getTask(taskId: string) {
   return await convex.query(api.tasks.get, { taskId });
 }
 
-export async function describeTask(task: Task, today: string, now = Date.now(), localClock?: string) {
-  const updates = await convex.query(api.tasks.recentUpdates, { taskId: task.taskId, limit: 5 });
+export async function describeTask(task: Task, today: string, now = Date.now(), localClock?: string, quiet?: QuietHours) {
+  const [updates, quietHours] = await Promise.all([
+    convex.query(api.tasks.recentUpdates, { taskId: task.taskId, limit: 5 }),
+    quiet ?? (localClock ? getQuietHours() : undefined),
+  ]);
   return {
     taskId: task.taskId,
     title: task.title,
@@ -51,7 +56,7 @@ export async function describeTask(task: Task, today: string, now = Date.now(), 
     dueTime: task.dueTime,
     status: task.status,
     snoozedUntil: task.snoozedUntil,
-    timing: taskTiming(task, today, now, localClock),
+    timing: taskTiming(task, today, now, localClock, quietHours),
     timesNudged: task.nudgeCount,
     lastNudgedAt: task.lastNudgedAt && new Date(task.lastNudgedAt).toISOString(),
     recentUpdates: updates.map((u) => ({ note: u.note, at: new Date(u.createdAt).toISOString() })),
@@ -316,6 +321,26 @@ export function createTaskTools(conversationId: string): RuntimeTool[] {
           if (existing?.enabled)
             await convex.mutation(api.automations.setEnabled, { automationId: existing.automationId, enabled: false });
           return runtimeText("Free-time check-ins off.");
+        } catch (err) {
+          return runtimeText(String(err), false);
+        }
+      },
+    ),
+    defineRuntimeTool(
+      NAMESPACE,
+      "configure_quiet_hours",
+      'Read or change quiet hours, the do-not-disturb window for messages Boop starts on its own (free-time check-ins and hourly task nudges). Default 22:00 to 08:00. Use for "don\'t message me before 9am", "quiet hours 11pm to 7am", "turn off quiet hours". Reminders the user scheduled for a specific time still go out, and a deadline within the hour can still get a last call. Call with no arguments to read the current setting.',
+      {
+        start: clock.optional().describe("Local 24-hour time quiet hours start, e.g. 23:00."),
+        end: clock.optional().describe("Local 24-hour time they end, e.g. 07:30. Earlier than start means overnight."),
+        enabled: z.boolean().optional().describe("false turns quiet hours off entirely."),
+      },
+      async (args) => {
+        try {
+          const changing = args.start !== undefined || args.end !== undefined || args.enabled !== undefined;
+          const saved = changing ? await setQuietHours(args) : await getQuietHours();
+          if (typeof saved === "string") return runtimeText(saved, false);
+          return runtimeText(JSON.stringify({ ...saved, saved: changing, description: `Quiet hours: ${describeQuietHours(saved)}` }));
         } catch (err) {
           return runtimeText(String(err), false);
         }

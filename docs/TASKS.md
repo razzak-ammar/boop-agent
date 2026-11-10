@@ -44,7 +44,7 @@ calls the model only when a task is due. Rules:
 
 - nudge every `cadenceHours` (default 2, 1 for high importance, when there's a
   `dueTime`; 3 for "sometime today"),
-- no hourly pings 22:00-08:00, unless the deadline is within the hour,
+- no hourly pings during [quiet hours](FREETIME.md#quiet-hours) (22:00-08:00 by default), unless the deadline is within the hour,
 - a last call within the hour before `dueTime`,
 - one "did it happen?" right after `dueTime` passes, then the daily overdue nudge,
 - it stops as soon as the task is marked done, dropped, or snoozed.

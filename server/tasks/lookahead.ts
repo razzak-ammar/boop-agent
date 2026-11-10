@@ -13,6 +13,7 @@ import { describeUserNow } from "../timezone-config.js";
 import { computePacing } from "../goals/pacing.js";
 import { alsoDueBlock, NO_REPEAT_RULE, runProactiveModel, SKIP } from "../goals/checkin.js";
 import { addDays, windowFromAnchor } from "./timing.js";
+import { getQuietHours } from "../quiet-hours-store.js";
 import { describeTask, PULSE_TASK } from "./tools.js";
 
 const HORIZON_DAYS = 10;
@@ -125,8 +126,9 @@ export async function runLookahead(a: LookaheadAutomation, alsoDue?: string[]): 
   const anchorIssues = hasCalendar && tz.isExplicit ? await refreshAnchors(tasks, tz.timezone) : new Map<string, string>();
   if (anchorIssues.size || tasks.some((t) => t.anchor)) tasks = await listOpen(conversationId);
   const now = Date.now();
+  const quiet = await getQuietHours();
   const taskBlocks = await Promise.all(tasks.map(async (t) => ({
-    ...(await describeTask(t, tz.isoDate, now, tz.clock24)),
+    ...(await describeTask(t, tz.isoDate, now, tz.clock24, quiet)),
     ...(anchorIssues.has(t.taskId) ? { anchorIssue: anchorIssues.get(t.taskId) } : {}),
   })));
   // Upcoming tasks (window not open yet) stay out of the message entirely.

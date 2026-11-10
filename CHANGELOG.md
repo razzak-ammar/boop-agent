@@ -13,6 +13,7 @@ Format:
 - Added: free-time check-ins. A 5-minute automation watches today's calendar and, right after an event ends or about once an hour while the user is free, lets the model send one short message suggesting an open task or goal that fits the free window ("You're free until 8 and the problem set is due Thursday. Want to start on it?"). The model usually replies `SKIP`. Created with the first task, toggled with `configure_free_time_checkins`. See [docs/FREETIME.md](docs/FREETIME.md).
 - The decision to wake the model is made in code first: no model call during events, overnight, for gaps under 20 minutes, with nothing to suggest, or soon after any message in the chat (45 minutes after an event ends, 90 for the hourly check). A message the model writes is never thrown away afterwards.
 - Added: a dashboard setting (Settings → Busy calendars for free-time check-ins) to pick which calendars mean the user is busy, so shared availability or room calendars don't hide free time. Unset means every calendar counts.
+- Added: configurable quiet hours (default 22:00-08:00, previously fixed) for free-time check-ins and hourly task nudges. Change them by texting Boop (`configure_quiet_hours`), in the dashboard (Settings → Quiet hours), or with `GET`/`PUT /quiet-hours`.
 - Added: proactive writers can run on their own Codex model. Free-time check-ins default to `gpt-6.1-terra` (`BOOP_FREETIME_MODEL` overrides; ignored on the Claude runtime).
 
 ## Unreleased — One message per moment, and linking what the user mentions

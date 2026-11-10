@@ -16,6 +16,8 @@ import { addDays, taskTiming } from "../tasks/timing.js";
 import { describeTask } from "../tasks/tools.js";
 import { parseLookaheadReply, type LookaheadResult } from "../tasks/lookahead.js";
 import { decideFreeTime, endKey, FREE_TIME, type BusyEvent, type FreeTimeDecision } from "./gate.js";
+import { getQuietHours } from "../quiet-hours-store.js";
+import { describeQuietHours, inQuietHours, type QuietHours } from "../quiet-hours.js";
 
 /** The calendar is read through Composio; ticks reuse a recent read. */
 const CALENDAR_CACHE_MS = 10 * 60000;
@@ -107,9 +109,10 @@ function clockIn(timezone: string, ms: number) {
   return new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit" }).format(ms);
 }
 
-function describeWindow(d: FreeTimeDecision, timezone: string) {
+function describeWindow(d: FreeTimeDecision, timezone: string, quiet: QuietHours) {
   if (d.next) return `Free for about ${d.freeMinutes} minutes, until "${d.next.title}" at ${clockIn(timezone, d.next.start)}.`;
-  return `No more events today. About ${d.freeMinutes} minutes until quiet hours (10 PM).`;
+  if (!quiet.enabled) return "No more events today.";
+  return `No more events today. About ${d.freeMinutes} minutes until quiet hours (${describeQuietHours(quiet)}).`;
 }
 
 export async function runFreeTimeCheck(a: FreeTimeAutomation, alsoDue?: string[]): Promise<LookaheadResult> {
@@ -121,13 +124,16 @@ export async function runFreeTimeCheck(a: FreeTimeAutomation, alsoDue?: string[]
   if (!integrations.includes("googlecalendar")) return {};
 
   const now = Date.now();
-  const [tasks, goals, history, lastCheck, busySetting] = await Promise.all([
+  const [tasks, goals, history, lastCheck, busySetting, quiet] = await Promise.all([
     convex.query(api.tasks.list, { conversationId, status: "open" }),
     convex.query(api.goals.list, { conversationId, status: "active" }),
     convex.query(api.messages.recent, { conversationId, limit: 20 }),
     convex.query(api.settings.get, { key: lastCheckKey(conversationId) }),
     convex.query(api.settings.get, { key: BUSY_CALENDARS_KEY }),
+    getQuietHours(),
   ]);
+  // Cheapest check first: overnight, nothing else needs reading.
+  if (inQuietHours(tz.clock24, quiet)) return {};
   const busyCalendars = parseBusyCalendars(busySetting);
   const workable = tasks.filter((t) => {
     const state = taskTiming(t, tz.isoDate, now, tz.clock24).state;
@@ -154,6 +160,7 @@ export async function runFreeTimeCheck(a: FreeTimeAutomation, alsoDue?: string[]
     lastMessageAt: history.length ? Math.max(...history.map((m) => m.createdAt)) : undefined,
     lastCheckAt: lastCheck ? Number(lastCheck) : undefined,
     hasWork: workable.length > 0 || goals.length > 0,
+    quiet,
   });
   if (decision.markHandled.length)
     await convex.mutation(api.tasks.markEventsSeen, { conversationId, eventKeys: decision.markHandled });
@@ -162,7 +169,7 @@ export async function runFreeTimeCheck(a: FreeTimeAutomation, alsoDue?: string[]
   console.log(`[freetime] waking model: ${decision.trigger} (${decision.reason})`);
   await convex.mutation(api.settings.set, { key: lastCheckKey(conversationId), value: String(now) });
 
-  const taskBlocks = await Promise.all(workable.map((t) => describeTask(t, tz.isoDate, now, tz.clock24)));
+  const taskBlocks = await Promise.all(workable.map((t) => describeTask(t, tz.isoDate, now, tz.clock24, quiet)));
   const goalBlocks = goals.map((g) => {
     const p = computePacing(g, tz.isoDate);
     return { title: g.title, deadline: g.deadline, daysToDeadline: p.daysToDeadline, status: p.status, percent: p.percent, next: p.next };
@@ -177,7 +184,7 @@ export async function runFreeTimeCheck(a: FreeTimeAutomation, alsoDue?: string[]
   const prompt = [
     `Current local time: ${tz.now} (${tz.timezone}); today is ${tz.isoDate}.`,
     `You were woken because: ${decision.reason}.`,
-    describeWindow(decision, tz.timezone),
+    describeWindow(decision, tz.timezone, quiet),
     `Today's calendar:\n${today || "(nothing)"}`,
     `Open tasks:\n${taskBlocks.length ? JSON.stringify(taskBlocks, null, 1) : "(none)"}`,
     goalBlocks.length ? `Active goals:\n${JSON.stringify(goalBlocks)}` : "",

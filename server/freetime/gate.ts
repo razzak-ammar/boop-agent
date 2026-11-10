@@ -3,7 +3,7 @@
 // would make a message pointless (quiet hours, mid-event, a chat that was just
 // active, nothing to suggest) is checked here, so the model is only woken when
 // whatever it writes can actually be sent.
-import { inQuietHours, QUIET_START } from "../tasks/timing.js";
+import { DEFAULT_QUIET_HOURS, inQuietHours, minutesOfClock, minutesUntilQuiet, type QuietHours } from "../quiet-hours.js";
 
 export const FREE_TIME = {
   /** How often the automation ticks. Ticks are database and calendar reads only. */
@@ -42,6 +42,8 @@ export interface FreeTimeInput {
   lastCheckAt?: number;
   /** Open tasks or active goals exist, so there's something to suggest. */
   hasWork: boolean;
+  /** Do-not-disturb window; 22:00-08:00 when omitted. */
+  quiet?: QuietHours;
 }
 
 export type FreeTimeTrigger = "event_ended" | "heartbeat";
@@ -61,18 +63,19 @@ export interface FreeTimeDecision {
 
 export const endKey = (e: BusyEvent) => `freetime-end:${e.key}:${e.end}`;
 
-const minutesOf = (clock: string) => +clock.slice(0, 2) * 60 + +clock.slice(3, 5);
 const minutesBetween = (later: number, earlier: number) => Math.floor((later - earlier) / 60000);
 
 export function decideFreeTime(i: FreeTimeInput): FreeTimeDecision {
-  const toQuiet = minutesOf(QUIET_START) - minutesOf(i.clock);
+  const quiet = i.quiet ?? DEFAULT_QUIET_HOURS;
+  // Free time runs until quiet hours start, or midnight when they're off.
+  const toQuiet = Math.min(minutesUntilQuiet(i.clock, quiet), 1440 - minutesOfClock(i.clock));
   const next = i.events
     .filter((e) => e.start > i.now && minutesBetween(e.start, i.now) < toQuiet)
     .sort((a, b) => a.start - b.start)[0];
   const freeMinutes = next ? minutesBetween(next.start, i.now) : toQuiet;
   const base = { freeMinutes, ...(next ? { next } : {}), markHandled: [] as string[] };
 
-  if (inQuietHours(i.clock)) return { ...base, reason: "quiet hours" };
+  if (inQuietHours(i.clock, quiet)) return { ...base, reason: "quiet hours" };
   const current = i.events.find((e) => e.start <= i.now && i.now < e.end);
   if (current) return { ...base, reason: `in "${current.title}"` };
 

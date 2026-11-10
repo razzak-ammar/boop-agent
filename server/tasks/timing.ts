@@ -2,6 +2,7 @@
 // whether a task is actionable and due for a nudge is decided here so it is
 // consistent and testable.
 import { daysBetween } from "../goals/pacing.js";
+import { DEFAULT_QUIET_HOURS, inQuietHours, minutesOfClock, type QuietHours } from "../quiet-hours.js";
 
 export interface TimingTask {
   earliest?: string;
@@ -42,14 +43,11 @@ const SLACK = 3 * 3600000;
 const HOUR = 3600000;
 // The pulse runs every 15 minutes; don't skip an hourly nudge over a few minutes.
 const HOURLY_SLACK = 10 * 60000;
-// No hourly pings overnight unless a deadline is within the hour.
-export const QUIET_START = "22:00";
-export const QUIET_END = "08:00";
+// No hourly pings during quiet hours (a setting, 22:00-08:00 by default)
+// unless a deadline is within the hour.
+export { inQuietHours } from "../quiet-hours.js";
 
-const minutesOf = (clock: string) => +clock.slice(0, 2) * 60 + +clock.slice(3, 5);
-export function inQuietHours(clock: string): boolean {
-  return clock >= QUIET_START || clock < QUIET_END;
-}
+const minutesOf = minutesOfClock;
 
 export function addDays(date: string, days: number): string {
   const t = Date.UTC(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8, 10)) + days * DAY;
@@ -66,7 +64,13 @@ export function windowFromAnchor(date: string, relation: "before" | "after", day
 
 /** localClock is the user's current local "HH:mm"; without it, time-of-day
  * rules (dueTime, quiet hours) are skipped. */
-export function taskTiming(task: TimingTask, today: string, now = Date.now(), localClock?: string): TaskTiming {
+export function taskTiming(
+  task: TimingTask,
+  today: string,
+  now = Date.now(),
+  localClock?: string,
+  quiet: QuietHours = DEFAULT_QUIET_HOURS,
+): TaskTiming {
   if (task.snoozedUntil && daysBetween(today, task.snoozedUntil) > 0)
     return { state: "snoozed", dueForNudge: false };
 
@@ -107,16 +111,16 @@ export function taskTiming(task: TimingTask, today: string, now = Date.now(), lo
       if (due) reason = "deadline just passed";
     } else if (state === "overdue") {
       // Once per later day, at the first pulse after quiet hours end: due when
-      // the last contact happened before this morning's 08:00.
+      // the last contact happened before quiet hours ended this morning.
       if (localClock) {
-        const sinceMorning = (minutesOf(localClock) - minutesOf(QUIET_END)) * 60000;
-        due = !inQuietHours(localClock) && since > sinceMorning;
+        const sinceMorning = (minutesOf(localClock) - minutesOf(quiet.end)) * 60000;
+        due = !inQuietHours(localClock, quiet) && since > sinceMorning;
       } else due = !nudgedToday;
       if (due) reason = "window has passed";
     } else if (closing && since >= 30 * 60000) {
       due = true;
       reason = "deadline within the hour";
-    } else if (localClock && inQuietHours(localClock)) {
+    } else if (localClock && inQuietHours(localClock, quiet)) {
       due = false;
     } else if (since >= task.cadenceHours * HOUR - HOURLY_SLACK) {
       due = true;

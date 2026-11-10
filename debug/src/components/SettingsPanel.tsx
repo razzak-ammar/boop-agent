@@ -67,7 +67,7 @@ const SETTINGS: Setting[] = [
   },
 ];
 
-const RUNTIME_SETTING_COUNT = SETTINGS.length + 6;
+const RUNTIME_SETTING_COUNT = SETTINGS.length + 7;
 /** Same key as server/freetime/checkin.ts BUSY_CALENDARS_KEY. */
 const BUSY_CALENDARS_KEY = "freetime_busy_calendars";
 const DEMO_PHONE_NUMBER = "+11111111111";
@@ -198,6 +198,7 @@ export function SettingsPanel({
             <TimezoneRow key={s.key} setting={s} isDark={isDark} />
           ),
         )}
+        <QuietHoursRow isDark={isDark} />
         <BusyCalendarsRow isDark={isDark} />
         <BrowserSection isDark={isDark} />
         <AppleSection isDark={isDark} />
@@ -838,6 +839,107 @@ function ToggleRow({
             }`}
           />
         </button>
+      }
+    />
+  );
+}
+
+interface QuietHoursValue {
+  start: string;
+  end: string;
+  enabled: boolean;
+  description: string;
+}
+
+function QuietHoursRow({ isDark }: { isDark: boolean }) {
+  const [value, setValue] = useState<QuietHoursValue | null>(null);
+  const [draft, setDraft] = useState({ start: "22:00", end: "08:00" });
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/quiet-hours", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((q: QuietHoursValue) => {
+        setValue(q);
+        setDraft({ start: q.start, end: q.end });
+      })
+      .catch(() => setError("Couldn't load quiet hours."));
+  }, []);
+
+  async function save(patch: Partial<Pick<QuietHoursValue, "start" | "end" | "enabled">>) {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/quiet-hours", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.error ?? "Couldn't save.");
+        if (value) setDraft({ start: value.start, end: value.end });
+        return;
+      }
+      setValue(body);
+      setDraft({ start: body.start, end: body.end });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const enabled = value?.enabled ?? true;
+  const input = `rounded-xl border px-2.5 py-1.5 text-sm mono ${
+    isDark ? "border-white/10 bg-white/5 text-zinc-100" : "border-zinc-200 bg-white text-zinc-900"
+  } ${enabled ? "" : "opacity-50"}`;
+
+  return (
+    <SettingShell
+      label="Quiet hours"
+      description={`Boop won't start a conversation in this window: no free-time check-ins or hourly task nudges. Reminders you scheduled for a specific time still go out. You can also text Boop, e.g. "quiet hours 11pm to 7am".${
+        error ? ` ${error}` : ""
+      }`}
+      debugLine={`settings.quiet_hours = ${value ? JSON.stringify({ start: value.start, end: value.end, enabled: value.enabled }) : "…"}`}
+      isDark={isDark}
+      control={
+        <div className="flex items-center gap-2">
+          <input
+            type="time"
+            aria-label="Quiet hours start"
+            value={draft.start}
+            disabled={!value || saving || !enabled}
+            onChange={(e) => setDraft((d) => ({ ...d, start: e.target.value }))}
+            onBlur={() => value && draft.start !== value.start && save({ start: draft.start })}
+            className={input}
+          />
+          <span className={`text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}`}>to</span>
+          <input
+            type="time"
+            aria-label="Quiet hours end"
+            value={draft.end}
+            disabled={!value || saving || !enabled}
+            onChange={(e) => setDraft((d) => ({ ...d, end: e.target.value }))}
+            onBlur={() => value && draft.end !== value.end && save({ end: draft.end })}
+            className={input}
+          />
+          <button
+            onClick={() => save({ enabled: !enabled })}
+            disabled={!value || saving}
+            role="switch"
+            aria-checked={enabled}
+            aria-label="Toggle quiet hours"
+            className={`toggle-switch relative ml-1 inline-flex h-6 w-11 shrink-0 items-center rounded-full ${
+              !value || saving ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+            } ${enabled ? "bg-emerald-500" : isDark ? "bg-zinc-700" : "bg-zinc-300"}`}
+          >
+            <span
+              className={`toggle-thumb inline-block h-5 w-5 transform rounded-full bg-white shadow ${
+                enabled ? "translate-x-5" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
       }
     />
   );

@@ -8,6 +8,8 @@ import { getUserTimezone } from "./timezone-config.js";
 import { followingRun, nextCronRun } from "./reminder-schedule.js";
 import { runGoalCheckin } from "./goals/checkin.js";
 import { recordLookaheadDelivered, runLookahead, type LookaheadResult } from "./tasks/lookahead.js";
+import { runFreeTimeCheck } from "./freetime/checkin.js";
+import { FREETIME_TASK } from "./tasks/tools.js";
 
 export function nextRunFor(schedule: string, timezone = "UTC"): number | null {
   try {
@@ -90,6 +92,9 @@ async function executeClaimed(
       const res = alsoDue ? await runGoalCheckin(a, alsoDue) : await runGoalCheckin(a);
       result = res.text;
       goalInactive = res.inactive === true;
+    } else if (a.delivery === "lookahead" && a.task === FREETIME_TASK) {
+      lookahead = alsoDue ? await runFreeTimeCheck(a, alsoDue) : await runFreeTimeCheck(a);
+      result = lookahead.text;
     } else if (a.delivery === "lookahead") {
       lookahead = alsoDue ? await runLookahead(a, alsoDue) : await runLookahead(a);
       result = lookahead.text;

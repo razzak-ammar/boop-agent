@@ -9,7 +9,7 @@ import { createCalendarTools } from "../calendar/tools.js";
 import { listEnabledIntegrations } from "../integrations/registry.js";
 import { loadMemoryProfile } from "../memory/profile.js";
 import { BARE_CLOCK_RULE } from "../interaction-prompt.js";
-import { getRuntimeConfig } from "../runtime-config.js";
+import { getRuntimeConfig, KNOWN_CODEX_MODELS } from "../runtime-config.js";
 import { runAgentRuntime } from "../runtimes/index.js";
 import { describeUserNow } from "../timezone-config.js";
 import { computePacing } from "./pacing.js";
@@ -113,8 +113,13 @@ export async function runProactiveModel(opts: {
   systemPrompt: string;
   tools: ReturnType<typeof createCalendarTools>;
   conversationId: string;
+  /** A Codex model for this writer only. Ignored on Claude or if unknown. */
+  model?: string;
 }) {
-  const runtimeConfig = await getRuntimeConfig();
+  const configured = await getRuntimeConfig();
+  const runtimeConfig = configured.runtime === "codex" && opts.model && KNOWN_CODEX_MODELS.has(opts.model)
+    ? { ...configured, model: opts.model }
+    : configured;
   const started = Date.now();
   const result = await runAgentRuntime(runtimeConfig, {
     prompt: opts.prompt,

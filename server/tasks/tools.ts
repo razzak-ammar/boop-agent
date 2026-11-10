@@ -14,6 +14,9 @@ export const DEFAULT_LOOKAHEAD_TIME = "09:00";
 /** Task text marking the frequent pulse that serves hourly tasks. */
 export const PULSE_TASK = "Pulse: hourly task check-ins.";
 const PULSE_SECONDS = 15 * 60;
+/** Task text marking the free-time check (server/freetime). */
+export const FREETIME_TASK = "Free time: check in when a free slot opens.";
+const FREETIME_SECONDS = 5 * 60;
 
 const anchorShape = z.object({
   eventId: z.string().describe("Event id from search_calendar_events."),
@@ -57,7 +60,36 @@ export async function describeTask(task: Task, today: string, now = Date.now(), 
 
 async function findLookahead(conversationId: string) {
   const all = await convex.query(api.automations.list, {});
-  return all.find((a) => a.delivery === "lookahead" && a.task !== PULSE_TASK && a.notifyConversationId === conversationId);
+  return all.find((a) => a.delivery === "lookahead" && a.task !== PULSE_TASK && a.task !== FREETIME_TASK && a.notifyConversationId === conversationId);
+}
+
+async function findFreeTime(conversationId: string) {
+  const all = await convex.query(api.automations.list, {});
+  return all.find((a) => a.delivery === "lookahead" && a.task === FREETIME_TASK && a.notifyConversationId === conversationId);
+}
+
+/** Make sure the free-time check exists. It ticks every 5 minutes but only
+ * calls the model when a free slot opens (server/freetime/gate.ts). One the
+ * user turned off stays off unless `enable` is set. */
+export async function ensureFreeTime(conversationId: string, enable = false) {
+  const existing = await findFreeTime(conversationId);
+  if (existing) {
+    if (enable && !existing.enabled)
+      await convex.mutation(api.automations.setEnabled, { automationId: existing.automationId, enabled: true });
+    return { automationId: existing.automationId, enabled: enable || existing.enabled, created: false };
+  }
+  const automationId = id("auto");
+  await convex.mutation(api.automations.create, {
+    automationId,
+    name: "Free-time check-ins",
+    task: FREETIME_TASK,
+    integrations: [],
+    ...buildSchedule({ everySeconds: FREETIME_SECONDS }, null),
+    delivery: "lookahead",
+    conversationId,
+    notifyConversationId: conversationId,
+  });
+  return { automationId, enabled: true, created: true };
 }
 
 /** Hourly tasks need a sweep more often than the daily lookahead. It costs
@@ -165,6 +197,7 @@ export function createTaskTools(conversationId: string): RuntimeTool[] {
           });
           const lookahead = await ensureLookahead(conversationId);
           if (cadenceHours) await ensurePulse(conversationId);
+          await ensureFreeTime(conversationId);
           const task = (await getTask(taskId))!;
           return runtimeText(JSON.stringify({ saved: true, task: await describeTask(task, tz.isoDate, Date.now(), tz.clock24), lookahead }));
         } catch (err) {
@@ -263,6 +296,26 @@ export function createTaskTools(conversationId: string): RuntimeTool[] {
           }
           await convex.mutation(api.automations.setEnabled, { automationId: existing.automationId, enabled: args.enabled });
           return runtimeText(args.enabled ? `Lookahead on${args.time ? `, daily at ${args.time}` : ""}.` : "Lookahead off.");
+        } catch (err) {
+          return runtimeText(String(err), false);
+        }
+      },
+    ),
+    defineRuntimeTool(
+      NAMESPACE,
+      "configure_free_time_checkins",
+      'Turn free-time check-ins on or off ("check in on me when I\'m free", "stop the free-time pings"). When on, Boop watches the calendar and, right after an event ends or about once an hour while the user is free, may send one short message suggesting an open task or goal that fits the free window. It stays quiet during events, overnight, and soon after any chat, and usually decides there is nothing worth saying.',
+      { enabled: z.boolean().default(true) },
+      async (args) => {
+        try {
+          if (args.enabled) {
+            await ensureFreeTime(conversationId, true);
+            return runtimeText("Free-time check-ins on.");
+          }
+          const existing = await findFreeTime(conversationId);
+          if (existing?.enabled)
+            await convex.mutation(api.automations.setEnabled, { automationId: existing.automationId, enabled: false });
+          return runtimeText("Free-time check-ins off.");
         } catch (err) {
           return runtimeText(String(err), false);
         }

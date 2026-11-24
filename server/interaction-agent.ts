@@ -27,6 +27,7 @@ import {
   setRuntimeProvider,
 } from "./runtime-config.js";
 import { broadcast } from "./broadcast.js";
+import { carriedImageStorageIds } from "./images/carry-forward.js";
 import { sendConversationNotification } from "./notifications.js";
 import { defineRuntimeTool } from "./runtimes/tool.js";
 import { runAgentRuntime } from "./runtimes/index.js";
@@ -154,9 +155,19 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           conversationId: opts.conversationId,
           limit: 30,
         });
+  // Photos sent on their own just before this message get no model turn of
+  // their own, so attach them here ("add this to my calendar").
+  const carriedImageIds = opts.kind === "proactive" ? [] : carriedImageStorageIds(history as never);
+  const contextImageStorageIds = [...inboundImageStorageIds, ...carriedImageIds];
   const historyBlock = history
     .slice(0, -1)
-    .map((m) => `${m.role.toUpperCase()}${m.createdAt ? " [" + new Date(m.createdAt).toISOString() + "]" : ""}: ${m.content}`)
+    .map((m) => {
+      const ids = (m.imageStorageIds ?? []) as string[];
+      const imageNote = ids.length === 0 ? ""
+        : ids.some((id) => carriedImageIds.includes(id)) ? " [image attached to the current message]"
+        : " [image, not visible now]";
+      return `${m.role.toUpperCase()}${m.createdAt ? " [" + new Date(m.createdAt).toISOString() + "]" : ""}: ${m.content}${imageNote}`;
+    })
     .join("\n");
 
   const systemPrompt = opts.kind === "proactive"
@@ -269,7 +280,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
       ? { prompt: promptText, imageStorageIds: [] }
       : await buildPromptWithImagesOrTextFallback({
           text: promptText,
-          imageStorageIds: inboundImageStorageIds,
+          imageStorageIds: contextImageStorageIds,
           fetchBytes: fetchStoredBytes,
         });
   if (promptBuild.imageError) {

@@ -13,6 +13,7 @@ Format:
 - Added: GPT-6.2 Sol and GPT-6.2 Astra to the Codex model list (dashboard, setup, `set_model`). The `sol` and `astra` aliases now point at the 6.2 models; `sol 6.1` and `astra 6` reach the older ones. Prices come from third-party listings until OpenAI's pricing page confirms them.
 - Added: Claude Sonnet 5.5, Opus 5.5, Haiku 5.5 and Fable 5.2. The `sonnet`, `opus` and `haiku` aliases now resolve to the 5.5 models, and the Claude fallback is `claude-sonnet-5-5`. Older Claude IDs stay valid, so a stored model setting keeps working. A fork that sets `BOOP_MODEL` explicitly keeps that model.
 - The Claude model list now lives in `server/model-catalog.ts`, shared by the server, the dashboard and setup.
+- Fixed: a photo sent on its own and then a message about it ("add this to my calendar") now works. Bare photos are saved without a model turn, so the next message had no image. Images from the user messages right before the current one (within 30 minutes, with no reply in between) are now attached to it, up to 4.
 
 ---
 

@@ -130,3 +130,17 @@ describe("reminder schedules", () => {
     );
   });
 });
+
+describe("tomorrow shorthand in clock reminders", () => {
+  const tz = "America/New_York";
+  const evening = Date.parse("2026-11-23T23:18:17Z"); // 6:18 PM EST
+  const tomorrow = { scheduleKind: "once", nextRunAt: parseReminderTime("2026-11-24T12:55:00", tz) } as never;
+  const today = { scheduleKind: "once", nextRunAt: parseReminderTime("2026-11-23T20:00:00", tz) } as never;
+  it.each(["tmr", "tmrw", "tomorow", "tomorrow"])("reads %s as tomorrow", (word) => {
+    expect(() => assertRequestedReminderTime(`remind me at 12:55pm ${word} to do the quiz`, tomorrow, tz, evening)).not.toThrow();
+    expect(() => assertRequestedReminderTime(`remind me ${word} at 12:55pm to do the quiz`, tomorrow, tz, evening)).not.toThrow();
+  });
+  it("still catches a reminder saved on the wrong day", () => {
+    expect(() => assertRequestedReminderTime("remind me at 8pm tmr to call", today, tz, evening)).toThrow(/conflicts/);
+  });
+});

@@ -36,9 +36,15 @@ export function resolveReminderClock(clock: string, day: string, timezone: strin
   return `${date}T${clock}`;
 }
 
-const CLOCK_REQUEST = /^\s*(?:(?:hey|ok|okay|please|pls|boop|can you|could you|would you|will you)[\s,]+)*(?:remind me|set (?:a )?reminder(?: for me)?)\s+(?:(today|tonight|tomorrow)\s+)?at\s+(\d{1,2})(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)?(?:\s+(today|tonight|tomorrow))?(?=$|[\s,;:!?.-])(.*)$/is;
+const DAY_WORD = String.raw`today|tonight|tomorrow|tomorow|tmrw|tmrow|tmr|2morrow`;
+const CLOCK_REQUEST = new RegExp(String.raw`^\s*(?:(?:hey|ok|okay|please|pls|boop|can you|could you|would you|will you)[\s,]+)*(?:remind me|set (?:a )?reminder(?: for me)?)\s+(?:(${DAY_WORD})\s+)?at\s+(\d{1,2})(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)?(?:\s+(${DAY_WORD}))?(?=$|[\s,;:!?.-])(.*)$`, "is");
+/** "tmr", "tmrw" and similar shorthand all mean tomorrow. */
+function normalizeDay(word: string): string {
+  const lower = word.toLowerCase();
+  return lower === "today" || lower === "tonight" ? lower : "tomorrow";
+}
 // A date or day-part anywhere after the clock means the request is not clock-only.
-const LATER_DATE = /\b(?:today|tonight|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun|weekend)\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d|\b\d{1,2}(?:st|nd|rd|th)\b|\b\d{1,2}\/\d{1,2}\b|\b\d{4}-\d{2}-\d{2}\b|\b(?:next|this)\s+(?:week|month)\b|\bin\s+\d+\s+(?:days?|weeks?)\b/i;
+const LATER_DATE = /\b(?:today|tonight|tomorrow|tomorow|tmrw|tmrow|tmr|2morrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun|weekend)\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d|\b\d{1,2}(?:st|nd|rd|th)\b|\b\d{1,2}\/\d{1,2}\b|\b\d{4}-\d{2}-\d{2}\b|\b(?:next|this)\s+(?:week|month)\b|\bin\s+\d+\s+(?:days?|weeks?)\b/i;
 const DAY_PART = /\b(?:morning|afternoon|evening|night|noon|midnight)\b/i;
 
 /** Narrow guard for an unambiguous clock-only request. Leave all other natural
@@ -50,8 +56,8 @@ export function assertRequestedReminderTime(request: string, fields: ScheduleFie
   if (!match) return;
   const [, before, hourText, minutes = "00", meridiemText, after, rest] = match;
   const hour = Number(hourText);
-  if (hour < 1 || hour > 12 || LATER_DATE.test(rest) || (before && after && before.toLowerCase() !== after.toLowerCase())) return;
-  const spokenDay = (before ?? after ?? "today").toLowerCase();
+  if (hour < 1 || hour > 12 || LATER_DATE.test(rest) || (before && after && normalizeDay(before) !== normalizeDay(after))) return;
+  const spokenDay = normalizeDay(before ?? after ?? "today");
   const day = spokenDay === "tonight" ? "today" : spokenDay;
   const clockFor = (meridiem: string) => `${String(hour % 12 + (meridiem === "pm" ? 12 : 0)).padStart(2, "0")}:${minutes}`;
   let meridiem: string | undefined = meridiemText?.replaceAll(".", "").toLowerCase();

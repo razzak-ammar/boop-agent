@@ -12,7 +12,7 @@ import { BARE_CLOCK_RULE } from "../interaction-prompt.js";
 import { describeUserNow } from "../timezone-config.js";
 import { computePacing } from "../goals/pacing.js";
 import { alsoDueBlock, NO_REPEAT_RULE, runProactiveModel, SKIP } from "../goals/checkin.js";
-import { addDays, windowFromAnchor } from "./timing.js";
+import { addDays, pulseShouldWait, windowFromAnchor } from "./timing.js";
 import { getQuietHours } from "../quiet-hours-store.js";
 import { describeTask, PULSE_TASK } from "./tools.js";
 
@@ -37,6 +37,8 @@ Calendar (only events with alreadyAsked=false):
 - Name events by title and day; flights by code and route when given.
 
 Hourly tasks (cadenceHours set, e.g. "remind me every hour until I submit it"): keep it to one or two lines, vary the wording from earlier nudges in the conversation, and mention time left before dueTime when there is one ("2 hours left before 8pm"). On "deadline within the hour" make it a clear last call; on "deadline just passed" ask whether it got done.
+
+Write it as the next text in an ongoing chat, not a new letter: no greeting or name opener ("Hey Sam,", "Hi!"). If the recent conversation is from the last hour, pick up from it naturally ("Also, the form is due at 5. Still on track?").
 
 If nothing is worth saying today, reply exactly ${SKIP}.
 
@@ -176,6 +178,11 @@ export async function runLookahead(a: LookaheadAutomation, alsoDue?: string[]): 
     return {};
 
   const history = await convex.query(api.messages.recent, { conversationId, limit: 20 });
+  // Don't interrupt a live conversation; the next pulse (15 min) tries again.
+  if (pulse && pulseShouldWait(dueTasks.map((t) => t.timing.reason), history.at(-1)?.createdAt, now)) {
+    console.log("[pulse] chat was active in the last 20 min; waiting");
+    return {};
+  }
   const prompt = [
     `Current local time: ${tz.now} (${tz.timezone}); today is ${tz.isoDate}.`,
     pulse ? "This is an intraday check-in: raise only the due tasks, in one or two lines. Do not bring up the calendar." : "",

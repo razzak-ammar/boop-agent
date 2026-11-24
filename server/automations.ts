@@ -3,6 +3,7 @@ import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { spawnExecutionAgent } from "./execution-agent.js";
 import { sendConversationNotification } from "./notifications.js";
+import { destinationsFor } from "./delivery.js";
 import { broadcast } from "./broadcast.js";
 import { getUserTimezone } from "./timezone-config.js";
 import { followingRun, nextCronRun } from "./reminder-schedule.js";
@@ -32,6 +33,28 @@ export function validateSchedule(
 }
 function randomId() {
   return `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** Sends one scheduled message to every conversation the user picked (see
+ * delivery.ts) and saves it into each one's history. A destination that
+ * fails doesn't stop the others; it only counts as a failure (and a retry)
+ * when nothing got through. `onSent` fires as soon as one send succeeds. */
+async function deliver(origin: string, text: string, onSent: () => void): Promise<void> {
+  let firstError: unknown;
+  let delivered = false;
+  for (const conversationId of await destinationsFor(origin)) {
+    try {
+      await sendConversationNotification(conversationId, text);
+    } catch (err) {
+      firstError ??= err;
+      console.warn(`[automations] delivery to ${conversationId.split(":")[0]} failed`, err);
+      continue;
+    }
+    delivered = true;
+    onSent();
+    await convex.mutation(api.messages.send, { conversationId, role: "assistant", content: text });
+  }
+  if (!delivered) throw firstError ?? new Error("No delivery destination.");
 }
 
 type Automation = NonNullable<Awaited<ReturnType<typeof claimAutomation>>>["a"];
@@ -121,13 +144,11 @@ async function executeClaimed(
         : a.delivery === "checkin" || a.delivery === "lookahead"
           ? result
           : `[${a.name}]\n\n${result}`);
-      await sendConversationNotification(a.notifyConversationId, text);
-      sent = true;
-      await convex.mutation(api.messages.send, {
-        conversationId: a.notifyConversationId,
-        role: "assistant",
-        content: text,
+      await deliver(a.notifyConversationId, text, () => {
+        sent = true;
       });
+      // Tasks and seen events belong to the origin conversation, wherever
+      // the message itself went.
       if (lookahead) await recordLookaheadDelivered(a.notifyConversationId, lookahead);
     }
   } catch (err) {

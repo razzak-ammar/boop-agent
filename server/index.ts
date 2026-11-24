@@ -23,6 +23,7 @@ import { closeLocalBrowser } from "./browser/launcher.js";
 import { createChangelogRouter } from "./changelog.js";
 import { createFreeTimeRouter } from "./freetime/routes.js";
 import { createQuietHoursRouter } from "./quiet-hours-routes.js";
+import { createDeliveryRouter } from "./delivery-routes.js";
 import {
   getRuntimeConfig,
   resolveModelInput,
@@ -145,6 +146,7 @@ async function main() {
   app.use("/changelog", createChangelogRouter());
   app.use("/freetime", createFreeTimeRouter());
   app.use("/quiet-hours", createQuietHoursRouter());
+  app.use("/delivery", createDeliveryRouter());
   app.use("/app", createAppRouter());
 
   app.post("/agents/:id/cancel", (req, res) => {

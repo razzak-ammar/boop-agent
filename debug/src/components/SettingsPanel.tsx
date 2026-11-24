@@ -67,7 +67,7 @@ const SETTINGS: Setting[] = [
   },
 ];
 
-const RUNTIME_SETTING_COUNT = SETTINGS.length + 5;
+const RUNTIME_SETTING_COUNT = SETTINGS.length + 6;
 const DEMO_PHONE_NUMBER = "+11111111111";
 
 const RUNTIME_OPTIONS: Option<RuntimeChoice>[] = [
@@ -184,6 +184,7 @@ export function SettingsPanel({
       <div className="space-y-3">
         <TextBoopRow isDark={isDark} desktopPhoneNumber={desktopPhoneNumber} />
         <RuntimeRow isDark={isDark} />
+        <CheckinDestinationRow isDark={isDark} />
         {SETTINGS.map((s) =>
           s.kind === "toggle" ? (
             <ToggleRow key={s.key} setting={s} isDark={isDark} />
@@ -762,6 +763,128 @@ function RuntimeRow({ isDark }: { isDark: boolean }) {
             </label>
           </div>
 
+          {error && <div className="text-[11px] text-rose-400">{error}</div>}
+        </div>
+      }
+    />
+  );
+}
+
+type CheckinDestination = "origin" | "telegram" | "app" | "both";
+
+interface DeliverySnapshot {
+  checkinDestination: CheckinDestination;
+  telegramAvailable: boolean;
+  appAvailable: boolean;
+}
+
+const CHECKIN_DESTINATIONS: Option<CheckinDestination>[] = [
+  { value: "origin", label: "Where they were set up" },
+  { value: "telegram", label: "Telegram" },
+  { value: "app", label: "App" },
+  { value: "both", label: "Both" },
+];
+
+function CheckinDestinationRow({ isDark }: { isDark: boolean }) {
+  // Watching the stored value refetches when the iOS app changes it.
+  const stored = useQuery(api.settings.get, { key: "checkin_destination" });
+  const [snapshot, setSnapshot] = useState<DeliverySnapshot | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/delivery", { cache: "no-store" })
+      .then((res) => (res.ok ? (res.json() as Promise<DeliverySnapshot>) : Promise.reject()))
+      .then((next) => {
+        if (!cancelled) {
+          setSnapshot(next);
+          setError(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setError("Couldn't load delivery settings.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [stored]);
+
+  async function save(checkinDestination: CheckinDestination) {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/delivery", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checkinDestination }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? `Save failed (${res.status})`);
+      setSnapshot(body as DeliverySnapshot);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const current = snapshot?.checkinDestination ?? "origin";
+  const unavailable = (value: CheckinDestination) =>
+    snapshot !== null &&
+    ((value === "telegram" && !snapshot.telegramAvailable) ||
+      (value === "app" && !snapshot.appAvailable) ||
+      (value === "both" && !snapshot.telegramAvailable && !snapshot.appAvailable));
+  const notes = snapshot
+    ? [
+        !snapshot.telegramAvailable && "Telegram isn't configured.",
+        !snapshot.appAvailable && "The iOS app isn't set up (BOOP_APP_TOKEN).",
+      ].filter(Boolean)
+    : [];
+
+  const segmentBase = isDark
+    ? "border-white/10 bg-[#17171a] text-zinc-400"
+    : "border-zinc-200 bg-zinc-100 text-zinc-500";
+  const segmentActive = isDark
+    ? "bg-zinc-100 text-zinc-950 shadow-sm"
+    : "bg-white text-zinc-950 shadow-sm";
+
+  return (
+    <SettingShell
+      label="Check-ins & reminders"
+      description="Where scheduled check-ins, reminders and automation results are sent. A destination that isn't set up falls back to where the reminder was created."
+      debugLine={settingDebug("checkin_destination", stored, "origin")}
+      isDark={isDark}
+      control={
+        <div className="flex w-full min-w-0 flex-col items-end gap-2 lg:min-w-[390px]">
+          <div
+            className={`segmented-control grid w-full grid-cols-2 rounded-2xl border p-1 sm:grid-cols-4 ${segmentBase}`}
+            role="group"
+            aria-label="Check-in destination"
+          >
+            {CHECKIN_DESTINATIONS.map((option) => {
+              const active = current === option.value;
+              const off = unavailable(option.value);
+              return (
+                <button
+                  key={option.value}
+                  onClick={() => save(option.value)}
+                  disabled={snapshot === null || saving || active || off}
+                  title={off ? "Not configured" : undefined}
+                  className={`segmented-button inline-flex items-center justify-center rounded-xl px-2.5 py-2 text-xs font-medium disabled:opacity-60 ${
+                    active ? segmentActive : isDark ? "hover:bg-white/5" : "hover:bg-white/70"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+          {notes.length > 0 && (
+            <div className={`text-[11px] ${isDark ? "text-zinc-500" : "text-zinc-500"}`}>
+              {notes.join(" ")}
+            </div>
+          )}
           {error && <div className="text-[11px] text-rose-400">{error}</div>}
         </div>
       }

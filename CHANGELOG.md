@@ -8,6 +8,12 @@ Format:
 
 ---
 
+## Unreleased — Check-in destination
+
+- Added: a setting for where scheduled check-ins, reminders, lookaheads and automation results are delivered (`checkin_destination`: `origin`, the default and the old behavior, `telegram`, `app` or `both`). Change it in the dashboard (Settings → Check-ins & reminders, `GET`/`PUT /delivery`) or from the iOS app (`checkinDestination` on `/app/config`). A destination that isn't set up falls back to the conversation the reminder was created in. Goals, tasks and history are still read from that original conversation.
+
+---
+
 ## Unreleased — Model catalog refresh
 
 - Added: GPT-6.2 Sol and GPT-6.2 Astra to the Codex model list (dashboard, setup, `set_model`). The `sol` and `astra` aliases now point at the 6.2 models; `sol 6.1` and `astra 6` reach the older ones. Prices come from third-party listings until OpenAI's pricing page confirms them.

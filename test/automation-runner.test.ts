@@ -248,3 +248,47 @@ describe("same-moment delivery to one chat", () => {
     expect(sendConversationNotification).toHaveBeenCalledExactlyOnceWith("telegram:fixture", "Combined");
   });
 });
+
+describe("check-in destination setting", () => {
+  const sentTo = () =>
+    vi.mocked(convex.mutation).mock.calls
+      .filter(([ref]) => getFunctionName(ref) === "messages:send")
+      .map(([, args]) => (args as any).conversationId);
+  function destination(value: string) {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "123:fixture");
+    vi.stubEnv("TELEGRAM_ALLOWED_USER_ID", "42");
+    vi.stubEnv("BOOP_APP_TOKEN", "test-app-token-0123456789");
+    vi.stubEnv("BOOP_APP_CONVERSATION_ID", "");
+    vi.mocked(convex.query).mockImplementation(async (ref) =>
+      getFunctionName(ref) === "settings:get" ? value : [reminder],
+    );
+  }
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("sends to and saves into every chosen conversation", async () => {
+    destination("both");
+    await tickAutomations();
+    expect(vi.mocked(sendConversationNotification).mock.calls).toEqual([
+      ["telegram:42", "Reminder: Take laundry out"],
+      ["app:owner", "Reminder: Take laundry out"],
+    ]);
+    expect(sentTo()).toEqual(["telegram:42", "app:owner"]);
+  });
+
+  it("counts a run as delivered when one destination fails", async () => {
+    destination("both");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(sendConversationNotification).mockRejectedValueOnce(new Error("Telegram unavailable"));
+    await tickAutomations();
+    expect(sentTo()).toEqual(["app:owner"]);
+    const finish = vi.mocked(convex.mutation).mock.calls.find(([ref]) => getFunctionName(ref) === "automations:finishRun");
+    expect(finish?.[1]).toMatchObject({ success: true });
+  });
+
+  it("keeps sending to the origin by default", async () => {
+    destination("origin");
+    await tickAutomations();
+    expect(sendConversationNotification).toHaveBeenCalledExactlyOnceWith("telegram:fixture", "Reminder: Take laundry out");
+    expect(sentTo()).toEqual(["telegram:fixture"]);
+  });
+});

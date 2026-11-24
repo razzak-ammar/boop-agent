@@ -9,6 +9,7 @@ import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { subscribe } from "./broadcast.js";
 import { appConversationId, appToken, isAuthorizedAppRequest } from "./app-auth.js";
+import { deliverySettings, parseCheckinDestination, setCheckinDestination } from "./delivery.js";
 import { handleUserMessage } from "./interaction-agent.js";
 import { CLAUDE_MODELS, CODEX_MODELS } from "./model-catalog.js";
 import {
@@ -89,9 +90,11 @@ function openEventStream(res: Response): (event: string, data: unknown) => void 
 }
 
 async function configPayload() {
-  const config = await getRuntimeConfig();
+  const [config, delivery] = await Promise.all([getRuntimeConfig(), deliverySettings()]);
   return {
     ...config,
+    checkinDestination: delivery.checkinDestination,
+    telegramAvailable: delivery.telegramAvailable,
     models: { claude: CLAUDE_MODELS, codex: CODEX_MODELS },
     reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"],
   };
@@ -208,7 +211,14 @@ export function createAppRouter(): express.Router {
         runtime?: unknown;
         model?: unknown;
         reasoningEffort?: unknown;
+        checkinDestination?: unknown;
       };
+      const destination =
+        body.checkinDestination === undefined ? undefined : parseCheckinDestination(body.checkinDestination);
+      if (body.checkinDestination !== undefined && !destination) {
+        res.status(400).json({ error: `Unknown check-in destination "${String(body.checkinDestination)}"` });
+        return;
+      }
       let runtime = body.runtime === undefined ? undefined : resolveRuntimeInput(String(body.runtime));
       if (body.runtime !== undefined && !runtime) {
         res.status(400).json({ error: `Unknown runtime "${String(body.runtime)}"` });
@@ -232,6 +242,7 @@ export function createAppRouter(): express.Router {
         }
         await setCodexReasoningEffort(effort);
       }
+      if (destination) await setCheckinDestination(destination);
       res.json(await configPayload());
     } catch (err) {
       res.status(500).json({ error: String(err) });

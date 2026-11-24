@@ -13,7 +13,12 @@ describe("Codex subscription model selection", () => {
     expect(resolveModelInput("terra", "codex")).toBe("gpt-6.1-terra");
     expect(resolveModelInput("gpt-5.5", "codex")).toBeNull();
     expect(resolveModelInput("gpt-5.4-mini", "codex")).toBeNull();
-    expect(resolveModelInput("sonnet", "claude")).toBe("claude-sonnet-4-6");
+    expect(resolveModelInput("sol", "codex")).toBe("gpt-6.2-sol");
+    expect(resolveModelInput("astra", "codex")).toBe("gpt-6.2-astra");
+    expect(resolveModelInput("gpt-6.2-sol", "codex")).toBe("gpt-6.2-sol");
+    expect(resolveModelInput("sonnet", "claude")).toBe("claude-sonnet-5-5");
+    expect(resolveModelInput("opus", "claude")).toBe("claude-opus-5-5");
+    expect(resolveModelInput("claude-sonnet-4-6", "claude")).toBe("claude-sonnet-4-6");
   });
 
   it("uses Luna with low reasoning by default and falls back from retired settings", async () => {

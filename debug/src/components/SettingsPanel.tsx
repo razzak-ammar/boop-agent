@@ -1,4 +1,4 @@
-import { CODEX_MODELS } from "../../../server/model-catalog.js";
+import { CLAUDE_MODELS, CODEX_MODELS } from "../../../server/model-catalog.js";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -75,11 +75,6 @@ const RUNTIME_OPTIONS: Option<RuntimeChoice>[] = [
   { value: "codex", label: "Codex" },
 ];
 
-const CLAUDE_MODELS: Option[] = [
-  { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
-  { value: "claude-opus-4-7", label: "Opus 4.7" },
-  { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
-];
 
 
 const CODEX_REASONING_EFFORTS: Option<ReasoningEffort>[] = [

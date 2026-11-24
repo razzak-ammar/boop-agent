@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-import { CODEX_MODELS, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT } from "../server/model-catalog.js";
+import { CLAUDE_MODELS, CODEX_MODELS, DEFAULT_CLAUDE_MODEL, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT } from "../server/model-catalog.js";
 import prompts from "prompts";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -13,18 +13,16 @@ const EXAMPLE_PATH = resolve(ROOT, ".env.example");
 
 type RuntimeChoice = "claude" | "codex";
 
-const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
 
 interface CommandSpec {
   cmd: string;
   leading: string[];
 }
 
-const CLAUDE_MODEL_CHOICES = [
-  { title: "claude-sonnet-4-6 (recommended)", value: "claude-sonnet-4-6" },
-  { title: "claude-opus-4-6 (slowest, most capable)", value: "claude-opus-4-6" },
-  { title: "claude-haiku-4-5 (fastest, cheapest)", value: "claude-haiku-4-5" },
-];
+const CLAUDE_MODEL_CHOICES = CLAUDE_MODELS.map(({ value, label }) => ({
+  title: value === DEFAULT_CLAUDE_MODEL ? `${label} (recommended)` : label,
+  value,
+}));
 
 const CODEX_MODEL_CHOICES = CODEX_MODELS.map(({ value, label }) => ({ title: label, value }));
 

@@ -1,4 +1,4 @@
-import { CODEX_MODELS, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT } from "./model-catalog.js";
+import { CLAUDE_MODELS, CODEX_MODELS, DEFAULT_CLAUDE_MODEL, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT } from "./model-catalog.js";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import type { RuntimeName, RuntimeReasoningEffort } from "./runtimes/types.js";
@@ -79,26 +79,31 @@ export const RUNTIME_ALIASES: Record<string, RuntimeName> = {
 
 // Backward-compatible names kept for existing imports and prompt text.
 export const MODEL_ALIASES: Record<string, string> = {
-  opus: "claude-opus-4-7",
+  opus: "claude-opus-5-5",
+  "opus 5.5": "claude-opus-5-5",
   "opus 4.7": "claude-opus-4-7",
-  sonnet: "claude-sonnet-4-6",
+  sonnet: "claude-sonnet-5-5",
+  "sonnet 5.5": "claude-sonnet-5-5",
   "sonnet 4.6": "claude-sonnet-4-6",
-  haiku: "claude-haiku-4-5-20251001",
+  haiku: "claude-haiku-5-5",
+  "haiku 5.5": "claude-haiku-5-5",
   "haiku 4.5": "claude-haiku-4-5-20251001",
+  fable: "claude-fable-5-2",
+  "fable 5.2": "claude-fable-5-2",
 };
 
-export const KNOWN_MODELS = new Set<string>([
-  "claude-opus-4-7",
-  "claude-sonnet-4-6",
-  "claude-haiku-4-5-20251001",
-]);
+export const KNOWN_MODELS = new Set<string>(CLAUDE_MODELS.map((model) => model.value));
 
 export const CODEX_MODEL_ALIASES: Record<string, string> = {
   luna: "gpt-6-luna",
   mini: "gpt-6-luna",
-  sol: "gpt-6.1-sol",
+  sol: "gpt-6.2-sol",
+  "sol 6.2": "gpt-6.2-sol",
+  "sol 6.1": "gpt-6.1-sol",
   terra: "gpt-6.1-terra",
-  astra: "gpt-6-astra",
+  astra: "gpt-6.2-astra",
+  "astra 6.2": "gpt-6.2-astra",
+  "astra 6": "gpt-6-astra",
 };
 
 export const KNOWN_CODEX_MODELS = new Set(CODEX_MODELS.map((model) => model.value));
@@ -134,7 +139,7 @@ function resolveRuntimeValue(input: string | null): RuntimeName {
 }
 
 function claudeEnvFallback(): string {
-  return process.env.BOOP_MODEL ?? "claude-sonnet-4-6";
+  return process.env.BOOP_MODEL ?? DEFAULT_CLAUDE_MODEL;
 }
 
 function codexEnvFallback(): string {

@@ -8,6 +8,14 @@ Format:
 
 ---
 
+## Unreleased — Model catalog refresh
+
+- Added: GPT-6.2 Sol and GPT-6.2 Astra to the Codex model list (dashboard, setup, `set_model`). The `sol` and `astra` aliases now point at the 6.2 models; `sol 6.1` and `astra 6` reach the older ones. Prices come from third-party listings until OpenAI's pricing page confirms them.
+- Added: Claude Sonnet 5.5, Opus 5.5, Haiku 5.5 and Fable 5.2. The `sonnet`, `opus` and `haiku` aliases now resolve to the 5.5 models, and the Claude fallback is `claude-sonnet-5-5`. Older Claude IDs stay valid, so a stored model setting keeps working. A fork that sets `BOOP_MODEL` explicitly keeps that model.
+- The Claude model list now lives in `server/model-catalog.ts`, shared by the server, the dashboard and setup.
+
+---
+
 ## Unreleased — Free-time check-ins
 
 - Added: free-time check-ins. A 5-minute automation watches today's calendar and, right after an event ends or about once an hour while the user is free, lets the model send one short message suggesting an open task or goal that fits the free window ("You're free until 8 and the problem set is due Thursday. Want to start on it?"). The model usually replies `SKIP`. Created with the first task, toggled with `configure_free_time_checkins`. See [docs/FREETIME.md](docs/FREETIME.md).

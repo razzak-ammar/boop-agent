@@ -6,7 +6,7 @@ describe("token pricing", () => {
     expect(estimateOpenAiCostUsd(calendar)).toBeCloseTo(0.0014883, 10);
   });
   it.each([
-    ["gpt-6-luna", 0.1], ["gpt-6.1-sol", 2], ["gpt-6.1-terra", 1], ["gpt-6-astra", 10],
+    ["gpt-6-luna", 0.1], ["gpt-6.1-sol", 2], ["gpt-6.1-terra", 1], ["gpt-6-astra", 10], ["gpt-6.2-sol", 2], ["gpt-6.2-astra", 8],
   ])("prices Standard %s input", (model, price) => {
     expect(estimateOpenAiCostUsd({ ...calendar, model, inputTokens: 1000000, outputTokens: 0, cacheReadTokens: 0 })).toBe(price);
   });

@@ -33,6 +33,7 @@ import {
   setRuntimeProvider,
 } from "./runtime-config.js";
 import { startImageCleanup } from "./images/clean.js";
+import { createAppRouter } from "./app-routes.js";
 import { isPublicServerRequest, isTrustedLocalRequest } from "./local-access.js";
 
 async function main() {
@@ -144,6 +145,7 @@ async function main() {
   app.use("/changelog", createChangelogRouter());
   app.use("/freetime", createFreeTimeRouter());
   app.use("/quiet-hours", createQuietHoursRouter());
+  app.use("/app", createAppRouter());
 
   app.post("/agents/:id/cancel", (req, res) => {
     const ok = cancelAgent(req.params.id);
@@ -215,6 +217,7 @@ async function main() {
     console.log(`  chat        POST http://localhost:${port}/chat`);
     console.log(`  sendblue    POST http://localhost:${port}/sendblue/webhook`);
     console.log(`  websocket   WS   ws://localhost:${port}/ws`);
+    if (process.env.BOOP_APP_TOKEN) console.log(`  ios app     *    http://localhost:${port}/app/*  (bearer token)`);
   });
 
   const signalExitCodes = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 } as const;

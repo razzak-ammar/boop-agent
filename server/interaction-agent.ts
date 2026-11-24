@@ -46,6 +46,7 @@ interface HandleOpts {
   content: string;
   turnTag?: string;
   onThinking?: (chunk: string) => void;
+  onToolUse?: (toolName: string) => void;
   // "proactive" persists the inbound message with role=system instead of
   // role=user, so the synthetic notice the IA receives doesn't pollute the
   // user-message history. Defaults to "user".
@@ -449,6 +450,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           || /^mcp__boop-automations__(?:create_reminder|create_automation|reschedule_automation|list_automations)$/.test(toolName)
           || toolName === "mcp__boop-self__get_config";
         if (!schedulingSupport) performedOtherWork = true;
+        opts.onToolUse?.(toolName);
         const name = toolName.replace(/^mcp__(?:boop-[a-z-]+|timetracker)__/, "");
         const inputPreview = JSON.stringify(input);
         log(

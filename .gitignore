@@ -18,3 +18,8 @@ data/
 debug/dist/
 .cache/
 .tsbuildinfo
+
+# Xcode
+ios/**/xcuserdata/
+ios/**/*.xcuserstate
+ios/build/

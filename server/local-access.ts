@@ -1,3 +1,4 @@
+import { isAuthorizedAppRequest } from "./app-auth.js";
 import type { IncomingHttpHeaders, IncomingMessage } from "node:http";
 
 type RequestLike = Pick<IncomingMessage, "headers" | "method" | "socket" | "url">;
@@ -128,6 +129,8 @@ export function isPublicServerRequest(request: RequestLike): boolean {
   return (
     (request.method === "GET" && normalizedPath === "/health") ||
     (request.method === "POST" && normalizedPath === "/sendblue/webhook") ||
-    (request.method === "POST" && normalizedPath === "/composio/webhook")
+    (request.method === "POST" && normalizedPath === "/composio/webhook") ||
+    // iOS app API: reachable off-box only with the app bearer token.
+    (normalizedPath.startsWith("/app/") && isAuthorizedAppRequest(request.headers.authorization))
   );
 }

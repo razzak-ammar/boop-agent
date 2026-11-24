@@ -148,18 +148,6 @@ export function taskTiming(
   return { state, ...timing, dueForNudge: due, ...(reason ? { reason } : {}) };
 }
 
-// An hourly check-in that lands right after a conversation reads as an
-// interruption. Wait until the chat has been quiet this long, unless it's a
-// last call before the deadline or right after it.
-export const PULSE_QUIET_AFTER_CHAT_MS = 20 * 60000;
-const URGENT_PULSE_REASONS = new Set(["deadline within the hour", "deadline just passed"]);
-
-/** True when an hourly check-in should wait for the chat to go quiet. */
-export function pulseShouldWait(dueReasons: Array<string | undefined>, lastMessageAt: number | undefined, now = Date.now()): boolean {
-  if (lastMessageAt === undefined || now - lastMessageAt >= PULSE_QUIET_AFTER_CHAT_MS) return false;
-  return !dueReasons.some((reason) => reason !== undefined && URGENT_PULSE_REASONS.has(reason));
-}
-
 export function defaultCadence(importance: "normal" | "high", dated: boolean): number {
   if (dated) return importance === "high" ? 1 : 2;
   return importance === "high" ? 2 : 3;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, defaultCadence, PULSE_QUIET_AFTER_CHAT_MS, pulseShouldWait, taskTiming, windowFromAnchor } from "../server/tasks/timing.js";
+import { addDays, defaultCadence, taskTiming, windowFromAnchor } from "../server/tasks/timing.js";
 
 const DAY = 86400000;
 const now = Date.parse("2026-11-06T14:00:00Z");
@@ -54,19 +54,3 @@ describe("task timing", () => {
   });
 });
 
-describe("pulseShouldWait", () => {
-  const t = Date.parse("2026-11-11T17:24:00Z");
-  it("waits right after a conversation", () => {
-    expect(pulseShouldWait(["no contact for 1+ hour(s)"], t - 60_000, t)).toBe(true);
-  });
-  it("sends once the chat has been quiet for 20 minutes", () => {
-    expect(pulseShouldWait(["no contact for 1+ hour(s)"], t - PULSE_QUIET_AFTER_CHAT_MS, t)).toBe(false);
-  });
-  it("never holds back a last call", () => {
-    expect(pulseShouldWait(["no contact for 1+ hour(s)", "deadline within the hour"], t - 60_000, t)).toBe(false);
-    expect(pulseShouldWait(["deadline just passed"], t - 60_000, t)).toBe(false);
-  });
-  it("sends when there is no conversation yet", () => {
-    expect(pulseShouldWait(["no contact for 1+ hour(s)"], undefined, t)).toBe(false);
-  });
-});

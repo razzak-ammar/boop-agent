@@ -12,7 +12,7 @@ import { BARE_CLOCK_RULE } from "../interaction-prompt.js";
 import { describeUserNow } from "../timezone-config.js";
 import { computePacing } from "../goals/pacing.js";
 import { alsoDueBlock, NO_REPEAT_RULE, runProactiveModel, SKIP } from "../goals/checkin.js";
-import { addDays, pulseShouldWait, windowFromAnchor } from "./timing.js";
+import { addDays, windowFromAnchor } from "./timing.js";
 import { getQuietHours } from "../quiet-hours-store.js";
 import { describeTask, PULSE_TASK } from "./tools.js";
 
@@ -178,11 +178,6 @@ export async function runLookahead(a: LookaheadAutomation, alsoDue?: string[]): 
     return {};
 
   const history = await convex.query(api.messages.recent, { conversationId, limit: 20 });
-  // Don't interrupt a live conversation; the next pulse (15 min) tries again.
-  if (pulse && pulseShouldWait(dueTasks.map((t) => t.timing.reason), history.at(-1)?.createdAt, now)) {
-    console.log("[pulse] chat was active in the last 20 min; waiting");
-    return {};
-  }
   const prompt = [
     `Current local time: ${tz.now} (${tz.timezone}); today is ${tz.isoDate}.`,
     pulse ? "This is an intraday check-in: raise only the due tasks, in one or two lines. Do not bring up the calendar." : "",
